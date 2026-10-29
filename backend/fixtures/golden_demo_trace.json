@@ -1,0 +1,7 @@
+[
+  {"type": "session_started", "mode": "MOCK_REPLAY"},
+  {"type": "bias_boost_triggered", "words": ["Peenya", "Thekedar", "Dihadi"]},
+  {"type": "evon_stage_a", "slots": {"worker_name": "Ramesh Kumar Verma", "eshram_uan": "100492837465"}},
+  {"type": "evon_stage_b_complete", "principal_arrears_inr": 16900, "statutory_compensation_inr": 33800},
+  {"type": "timbre_audio", "script": "<slow>आपकी अनुमानित बकाया मज़दूरी है।</slow>"}
+]
