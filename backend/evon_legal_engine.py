@@ -6,6 +6,7 @@ from typing import Any
 import httpx
 from pydantic import BaseModel, ConfigDict
 
+from hindi_numbers import number_to_hindi_words
 
 class FormAClaimSlots(BaseModel):
     model_config = ConfigDict(extra="ignore")
@@ -72,7 +73,10 @@ class EvonLegalEngine:
                     "principal_arrears_inr": principal,
                     "statutory_compensation_inr": principal * 2,
                     "form_a_clauses": [f"Clause {index}: Verified worker claim fact." for index in range(1, 6)],
-                    "timbre_v3_readback_script": f"<slow>आपकी अनुमानित बकाया मज़दूरी {principal} रुपये है।</slow>",
+                    "timbre_v3_readback_script": (
+                        f"<slow>आपकी अनुमानित बकाया मज़दूरी "
+                        f"{number_to_hindi_words(principal)} रुपये है।</slow>"
+                    ),
                 },
             }
         payload = {

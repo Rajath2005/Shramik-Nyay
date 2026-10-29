@@ -34,3 +34,19 @@ synthetic e-Shram profile, Form-A slots, statutory audit, and Timbre read-back e
 
 The Prisma bridge sends only raw mono `pcm_s16le` frames of 1024 bytes at a 64 ms
 cadence and supports the documented `update_settings` bias control frame.
+
+## Optional live API diagnostic
+
+After confirming that the credentials in `backend/.env` are valid, run the opt-in
+diagnostic from the backend directory:
+
+```powershell
+cd backend
+.\venv\Scripts\activate
+python verify_live_apis.py
+```
+
+It checks Hugging Face model access, synthesizes a short Timbre sample, and sends
+that sample to Prisma using 1024-byte frames paced at 64 ms. The generated WAV is
+ignored by Git. This diagnostic can consume API credits and should not be run
+automatically.
