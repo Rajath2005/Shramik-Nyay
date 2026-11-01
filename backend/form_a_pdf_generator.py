@@ -31,6 +31,6 @@ def compile_form_a(slots: FormAClaimSlots, audit: dict, output_directory: Path) 
         document.drawString(48, y, f"{label}: {value or 'Not provided'}")
         y -= 18
     document.drawString(48, y - 10, f"Principal arrears (INR): {audit.get('principal_arrears_inr', 0)}")
-    document.drawString(48, y - 28, f"Statutory compensation (INR): {audit.get('statutory_compensation_inr', 0)}")
+    document.drawString(48, y - 28, f"Potential deduction compensation (INR): {audit.get('max_compensation_inr') or 0}")
     document.save()
     return pdf_path

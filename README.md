@@ -32,6 +32,17 @@ synthetic e-Shram profile, Form-A slots, statutory audit, and Timbre read-back e
 - `LIVE` is reserved for configured Gnani credentials and endpoint access. Credentials
   remain local in `backend/.env`, which is intentionally ignored by Git.
 
+The microphone/Prisma speech-to-text path is available only in `LIVE` mode. In
+`MOCK_REPLAY`, the backend and sample-claim flow work, but microphone transcription is
+intentionally disabled to avoid external API calls and credit usage. To opt in, set
+`SHRAMIK_MODE=LIVE` in `backend/.env` and configure valid Gnani credentials and endpoint
+before restarting the backend.
+
+Wage calculations are deterministic in `backend/legal_rules.py`; the LLM only drafts
+the narrative and does not calculate amounts. The rule module includes a legal-review
+notice because statutory applicability and compensation limits must be verified before
+filing. Run its focused tests from `backend` with `python -m pytest test_legal_rules.py`.
+
 The Prisma bridge sends only raw mono `pcm_s16le` frames of 1024 bytes at a 64 ms
 cadence and supports the documented `update_settings` bias control frame.
 

@@ -1,4 +1,5 @@
 backend/.env
+backend/claims/
 backend/venv/
 __pycache__/
 *.py[cod]
