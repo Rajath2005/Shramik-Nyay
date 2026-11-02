@@ -77,8 +77,17 @@ class TimbreTtsClientTests(unittest.IsolatedAsyncioTestCase):
             json.dumps({"type": "audio", "data": {"audio": base64.b64encode(b"ignored").decode()}}),
         ])
         connection = FakeTimbreConnection(websocket)
+        first_audio_chunks = []
+
+        async def on_first_audio_chunk():
+            first_audio_chunks.append(True)
+
         with patch("timbre_tts_client.websocket_connect", return_value=connection) as connect:
-            wav_bytes = await synthesize_timbre_audio("<slow>दस रुपये</slow>", "offline-test-key")
+            wav_bytes = await synthesize_timbre_audio(
+                "<slow>दस रुपये</slow>",
+                "offline-test-key",
+                on_first_audio_chunk=on_first_audio_chunk,
+            )
 
         connect.assert_called_once_with(
             TIMBRE_WS_URL,
@@ -104,6 +113,7 @@ class TimbreTtsClientTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(audio.getnchannels(), 1)
             self.assertEqual(audio.getsampwidth(), 2)
             self.assertEqual(audio.readframes(audio.getnframes()), pcm)
+        self.assertEqual(first_audio_chunks, [True])
 
     async def test_existing_wav_is_returned_without_wrapping(self):
         output = BytesIO()

@@ -198,9 +198,28 @@ export default function App() {
             <div><small>{copy.vadThreshold}</small><strong>{s.telemetry?.vadThreshold?.toFixed(2) ?? '0.72'}</strong></div>
             <div><small>{copy.transcriptLatency}</small><strong>{s.latency !== null ? `${s.latency} ms` : '—'}</strong></div>
           </div>
+          <div className="pipeline-latencies" aria-label="Pipeline latency">
+            {([
+              ['Prisma segment', 'prisma_segment'],
+              ['Evon Stage A', 'evon_stage_a'],
+              ['Evon Stage B', 'evon_stage_b'],
+              ['Timbre first audio', 'timbre_first_audio_chunk'],
+            ] as const).map(([label, stage]) => (
+              <div key={stage}><small>{label}</small><strong>{s.pipelineLatencies[stage] ?? '—'}{s.pipelineLatencies[stage] === undefined ? '' : ' ms'}</strong></div>
+            ))}
+          </div>
           <div className="bias-row">
             <span className="sub-label">{copy.recognizeWords}</span>
-            <div className="word-pills">{s.biasWords.length ? s.biasWords.map((word) => <span key={word}>{word}</span>) : <span className="muted">{copy.noBoostedWords}</span>}</div>
+            <div className={`word-pills ${s.biasSettingsUpdated ? 'is-confirmed' : 'is-pending'}`}>
+              {s.biasWords.length ? s.biasWords.map((word) => <span key={word}>{word}</span>) : <span className="muted">{copy.noBoostedWords}</span>}
+              {s.biasWords.length > 0 && (
+                <span className="bias-confirmation" role="status">
+                  {s.biasSettingsUpdated
+                    ? 'settings_updated'
+                    : s.biasBoostFailed ? 'settings_update_failed' : 'awaiting settings_updated'}
+                </span>
+              )}
+            </div>
           </div>
         </article>
 

@@ -5,6 +5,7 @@ import base64
 import json
 import os
 import wave
+from datetime import datetime
 from pathlib import Path
 
 import httpx
@@ -22,7 +23,7 @@ FIXTURE_WAV = ROOT / "fixtures" / "live_tts_8khz.wav"
 
 
 async def check_huggingface_access() -> None:
-    print("\n=== [1/3] Hugging Face Evon access ===")
+    print("\n=== [1/3] Hugging Face model repository access ===")
     headers = {"Authorization": f"Bearer {HF_TOKEN}"} if HF_TOKEN else {}
     async with httpx.AsyncClient(timeout=10.0) as client:
         response = await client.get(
@@ -38,7 +39,7 @@ async def check_huggingface_access() -> None:
 async def synthesize_timbre() -> bytes:
     print("\n=== [2/3] Timbre v3.0 WebSocket TTS ===")
     payload = {
-        "text": "साब, <pauses> ठेकेदार रमेश ने पीन्या साइट पर <slow>छब्बीस दिन</slow> काम कराया और मेरी दिहाड़ी रोक ली है।",
+        "text": "साब, <pauses> ठेकेदार रमेश ने पीन्या साइट पर <slow>छब्बीस दिन काम कराया और मेरी दिहाड़ी रोक ली है।",
         "voice": "Shivani",
         "model": "timbre-v3.0",
         "language": "hi-IN",
@@ -88,10 +89,10 @@ async def check_prisma(wav_bytes: bytes) -> None:
     raw_pcm += b"\x00" * 16000
     headers = {
         "x-api-key-id": GNANI_API_KEY,
-        "x-model": "prisma-v3.0",
-        "lang_code": "hi-IN,en-IN",
+        "model": "prisma-v3.0",
+        "language_code": "hi-IN,en-IN",
         "x-sample-rate": "8000",
-        "x-format": "transcribe",
+        "format": "transcribe",
         "itn_native_numerals": "false",
         "x-vad-threshold": "0.72",
         "x-min-speech-ms": "200",
@@ -103,6 +104,7 @@ async def check_prisma(wav_bytes: bytes) -> None:
             "type": "update_settings",
             "bias": {"list": ["Peenya", "Thekedar", "Dihadi", "Ramesh"], "score": 2.0},
         }))
+        await wait_for_settings_updated(websocket, expected_bias_count=4, expected_bias_score=2.0)
         for offset in range(0, len(raw_pcm), 1024):
             frame = raw_pcm[offset:offset + 1024].ljust(1024, b"\x00")
             await websocket.send(frame)
@@ -117,6 +119,69 @@ async def check_prisma(wav_bytes: bytes) -> None:
                 print(f"Transcript: {event.get('text')}")
                 return
     raise RuntimeError("Prisma closed without a transcript")
+
+
+async def wait_for_settings_updated(
+    websocket, *, expected_bias_count: int, expected_bias_score: float
+) -> None:
+    required_config_fields = {
+        "language_code",
+        "format",
+        "itn_native_numerals",
+        "substitution_enabled",
+        "bias_word_count",
+        "bias_score",
+    }
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + 10.0
+    while True:
+        remaining = deadline - loop.time()
+        if remaining <= 0:
+            raise RuntimeError("Timed out waiting for Prisma settings_updated confirmation.")
+        raw_message = await asyncio.wait_for(websocket.recv(), timeout=remaining)
+        event = json.loads(raw_message)
+        event_type = event.get("type")
+        print(f"Prisma event: {event_type}")
+        if event_type == "error":
+            raise RuntimeError(f"Prisma API error: {event}")
+        if event_type != "settings_updated":
+            continue
+
+        timestamp = event.get("timestamp")
+        if not isinstance(timestamp, str) or not timestamp.strip():
+            raise RuntimeError("Prisma settings_updated event is missing its ISO-8601 timestamp.")
+        try:
+            datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
+        except ValueError as error:
+            raise RuntimeError("Prisma settings_updated timestamp is not ISO-8601.") from error
+
+        config = event.get("config")
+        if not isinstance(config, dict):
+            raise RuntimeError("Prisma settings_updated event is missing its config object.")
+        missing_fields = required_config_fields.difference(config)
+        if missing_fields:
+            raise RuntimeError(
+                f"Prisma settings_updated config is missing documented fields: {sorted(missing_fields)}"
+            )
+        if type(config["bias_word_count"]) is not int:
+            raise RuntimeError("Prisma settings_updated bias_word_count is not an integer.")
+        if config["bias_word_count"] != expected_bias_count:
+            raise RuntimeError(
+                f"Prisma confirmed {config['bias_word_count']} boosted words; "
+                f"expected {expected_bias_count}."
+            )
+        if isinstance(config["bias_score"], bool) or not isinstance(config["bias_score"], (int, float)):
+            raise RuntimeError("Prisma settings_updated bias_score is not numeric.")
+        if config["bias_score"] != expected_bias_score:
+            raise RuntimeError(
+                f"Prisma confirmed bias score {config['bias_score']}; "
+                f"expected {expected_bias_score}."
+            )
+        print(
+            "Prisma settings confirmed: "
+            f"bias_word_count={config['bias_word_count']}, bias_score={config['bias_score']}"
+        )
+        return
 
 
 async def main() -> None:

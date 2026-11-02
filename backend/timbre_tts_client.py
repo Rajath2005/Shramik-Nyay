@@ -5,6 +5,7 @@ import binascii
 import json
 import os
 import wave
+from collections.abc import Awaitable, Callable
 from io import BytesIO
 
 from websockets.asyncio.client import connect as websocket_connect
@@ -44,7 +45,13 @@ async def stream_timbre_audio(text: str, api_key: str, language: str = "hi-IN"):
             yield frame
 
 
-async def synthesize_timbre_audio(text: str, api_key: str, language: str = "hi-IN") -> bytes:
+async def synthesize_timbre_audio(
+    text: str,
+    api_key: str,
+    language: str = "hi-IN",
+    *,
+    on_first_audio_chunk: Callable[[], Awaitable[None]] | None = None,
+) -> bytes:
     audio = bytearray()
     async for frame in stream_timbre_audio(text, api_key, language):
         if isinstance(frame, bytes):
@@ -60,9 +67,12 @@ async def synthesize_timbre_audio(text: str, api_key: str, language: str = "hi-I
             encoded = event.get("data", {}).get("audio", "")
             if encoded:
                 try:
-                    audio.extend(base64.b64decode(encoded, validate=True))
+                    chunk = base64.b64decode(encoded, validate=True)
                 except (binascii.Error, ValueError) as error:
                     raise RuntimeError("Timbre returned invalid base64 audio.") from error
+                if chunk and not audio and on_first_audio_chunk:
+                    await on_first_audio_chunk()
+                audio.extend(chunk)
         if event.get("type") == "complete" or event.get("data", {}).get("is_final") is True:
             break
 

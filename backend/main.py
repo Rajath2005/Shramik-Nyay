@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import time
 import uuid
 from pathlib import Path
 
@@ -11,10 +12,16 @@ from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 
-from audio_pacer import PrismaRealtimeStreamer
+from audio_pacer import (
+    BIAS_SCORE,
+    PRISMA_SEED_WORDS,
+    PrismaRealtimeStreamer,
+    sanitize_bias_words,
+)
 from eshram_mock_db import lookup_eshram_uan
 from evon_legal_engine import EvonLegalEngine, FormAClaimSlots, missing_fields
 from form_a_pdf_generator import compile_form_a
+from locality_vocab import locality_terms_in
 from language_support import (
     LANGUAGE_NAMES,
     MOCK_TRANSCRIPTS,
@@ -79,6 +86,11 @@ class Session:
         self.streamer: PrismaRealtimeStreamer | None = None
         self.stt_task: asyncio.Task | None = None
         self.frames = 0
+        self._send_lock = asyncio.Lock()
+        self._turn_lock = asyncio.Lock()
+        self._transcript_tasks: set[asyncio.Task] = set()
+        self._pending_bias_request_id: str | None = None
+        self._pending_bias_words: list[str] = []
         self.language_preference = "auto"
         self.detected_language: str | None = None
         self.last_utterance = ""
@@ -92,7 +104,20 @@ class Session:
         )
 
     async def send(self, event: dict) -> None:
-        await self.ws.send_json(event)
+        async with self._send_lock:
+            await self.ws.send_json(event)
+
+    async def send_audio(self, audio: bytes) -> None:
+        async with self._send_lock:
+            await self.ws.send_bytes(audio)
+
+    async def send_pipeline_latency(self, stage: str, started_at: float) -> None:
+        await self.send({
+            "type": "pipeline_latency",
+            "stage": stage,
+            "latency_ms": round((time.perf_counter() - started_at) * 1000, 1),
+            "source": "live" if self.mode == "LIVE" else "mock",
+        })
 
     async def send_language_status(self) -> None:
         effective = self.detected_language if self.language_preference == "auto" else self.language_preference
@@ -119,8 +144,13 @@ class Session:
                     except Exception as error:               # one bad command must not kill the call
                         await self.send({"type": "error", "message": str(error)})
         finally:
+            tasks = [task for task in self._transcript_tasks]
             if self.stt_task:
-                self.stt_task.cancel()
+                tasks.append(self.stt_task)
+            for task in tasks:
+                task.cancel()
+            if tasks:
+                await asyncio.gather(*tasks, return_exceptions=True)
 
     async def on_audio(self, chunk: bytes) -> None:
         self.frames += 1
@@ -167,76 +197,162 @@ class Session:
     async def start_stt(self) -> None:
         if self.mode != "LIVE":
             return await self.send({"type": "notice", "message": "MOCK mode: type or run the replay."})
+        if self.streamer and (self.streamer.running or self.streamer.connecting):
+            return await self.send({"type": "notice", "message": "The microphone stream is already active."})
         self.streamer = PrismaRealtimeStreamer(
             self.key,
             self.on_prisma_event,
             lang_code=prisma_language_code(self.language_preference),
-            seed_words=["Thekedar", "Mistry", "Dihadi", "Muster", "Samadhan", "Advance"],
+            seed_words=PRISMA_SEED_WORDS,
         )
-        self.stt_task = asyncio.create_task(self.streamer.connect_and_run())
+        self.streamer.connecting = True
+        self.stt_task = asyncio.create_task(self._run_prisma_stream(self.streamer))
+
+    async def _run_prisma_stream(self, streamer: PrismaRealtimeStreamer) -> None:
+        try:
+            await streamer.connect_and_run()
+        except asyncio.CancelledError:
+            raise
+        except Exception as error:
+            await self.send({"type": "error", "message": f"Prisma stream failed: {error}"})
 
     async def on_prisma_event(self, event: dict) -> None:
         detected = event.get("detected_language_code")
         if detected in SUPPORTED_LANGUAGES:
             self.detected_language = detected
+        outbound_event = dict(event)
+        if event.get("type") == "settings_updated":
+            config = event.get("config")
+            bias_count = config.get("bias_word_count") if isinstance(config, dict) else None
+            bias_score = config.get("bias_score") if isinstance(config, dict) else None
+            if (
+                self._pending_bias_request_id
+                and bias_count == len(self._pending_bias_words)
+                and bias_score == BIAS_SCORE
+            ):
+                outbound_event["request_id"] = self._pending_bias_request_id
+                outbound_event["confirmed_words"] = self._pending_bias_words
+                self._pending_bias_request_id = None
+                self._pending_bias_words = []
         await self.send({
-            **event,
+            **outbound_event,
             "type": f"prisma_{event.get('type')}",
             "language_preference": self.language_preference,
             "effective_language": self.active_language,
         })
         if event.get("type") == "transcript" and event.get("text"):
-            await self.on_utterance(event["text"], detected_language=detected)
+            latency_ms = event.get("segment_latency_ms")
+            if isinstance(latency_ms, (int, float)) and not isinstance(latency_ms, bool):
+                await self.send({
+                    "type": "pipeline_latency",
+                    "stage": "prisma_segment",
+                    "latency_ms": round(float(latency_ms), 1),
+                    "source": "live",
+                })
+            task = asyncio.create_task(
+                self._process_prisma_transcript(event["text"], detected_language=detected)
+            )
+            self._transcript_tasks.add(task)
+            task.add_done_callback(self._transcript_tasks.discard)
+
+    async def _process_prisma_transcript(
+        self, text: str, *, detected_language: str | None = None
+    ) -> None:
+        try:
+            await self.on_utterance(text, detected_language=detected_language)
+        except Exception as error:
+            await self.send({"type": "error", "message": str(error)})
 
     # ---- understanding ---------------------------------------------------
     async def on_utterance(self, text: str, *, detected_language: str | None = None) -> None:
-        self.last_utterance = text
-        target_language = resolve_language(
-            self.language_preference,
-            detected=detected_language or self.detected_language,
-            text=text,
-        )
-        if self.language_preference == "auto":
-            self.detected_language = target_language
-        await self.send_language_status()
-        result = await self.engine.stage_a_extract_slots(text, self.slots, target_language)
-        self.slots = FormAClaimSlots.model_validate(result["updated_slots"])
-        await self.send({"type": "evon_stage_a", "slots": self.slots.model_dump(),
-                         "missing_fields": result["missing_fields"],
-                         "followup": result["followup_question_spoken"]})
-        if not result["missing_fields"]:
-            await self.audit_and_readback()
+        async with self._turn_lock:
+            self.last_utterance = text
+            target_language = resolve_language(
+                self.language_preference,
+                detected=detected_language or self.detected_language,
+                text=text,
+            )
+            if self.language_preference == "auto":
+                self.detected_language = target_language
+            await self.send_language_status()
+            await self._boost_locality_words(locality_terms_in(text))
+            started_at = time.perf_counter()
+            result = await self.engine.stage_a_extract_slots(text, self.slots, target_language)
+            await self.send_pipeline_latency("evon_stage_a", started_at)
+            self.slots = FormAClaimSlots.model_validate(result["updated_slots"])
+            await self.send({"type": "evon_stage_a", "slots": self.slots.model_dump(),
+                             "missing_fields": result["missing_fields"],
+                             "followup": result["followup_question_spoken"]})
+            if not result["missing_fields"]:
+                await self.audit_and_readback()
 
     async def apply_uan(self, uan: str) -> None:
         profile = lookup_eshram_uan(uan)
         if not profile:
             return await self.send({"type": "uan_result", "found": False})
-        self.slots = self.slots.model_copy(update={
-            "worker_name": profile["worker_name"], "eshram_uan": "".join(c for c in uan if c.isdigit()),
-            "worksite_locality_and_sphere": self.slots.worksite_locality_and_sphere or profile["current_service_address"]})
-        await self.send({"type": "uan_result", "found": True, "worker_name": profile["worker_name"]})
-        words = profile["local_bias_words"]
-        if self.streamer:
-            words = await self.streamer.boost_locality_vocabulary(words)
-        await self.send({"type": "bias_boost_triggered", "words": words})
-        missing = missing_fields(self.slots)
-        next_question = followup_for(missing[0], self.active_language) if missing else ""
-        await self.send({"type": "evon_stage_a", "slots": self.slots.model_dump(),
-                         "missing_fields": missing,
-                         "followup": next_question})
+        async with self._turn_lock:
+            self.slots = self.slots.model_copy(update={
+                "worker_name": profile["worker_name"], "eshram_uan": "".join(c for c in uan if c.isdigit()),
+                "worksite_locality_and_sphere": self.slots.worksite_locality_and_sphere or profile["current_service_address"]})
+            await self.send({"type": "uan_result", "found": True, "worker_name": profile["worker_name"]})
+            await self._boost_locality_words(profile["local_bias_words"])
+            missing = missing_fields(self.slots)
+            next_question = followup_for(missing[0], self.active_language) if missing else ""
+            await self.send({"type": "evon_stage_a", "slots": self.slots.model_dump(),
+                             "missing_fields": missing,
+                             "followup": next_question})
+
+    async def _boost_locality_words(self, words: list[str]) -> None:
+        if not self.streamer or not (self.streamer.running or self.streamer.connecting):
+            return
+        clean_words = sanitize_bias_words(words)
+        if not clean_words:
+            return
+
+        request_id = uuid.uuid4().hex
+        self._pending_bias_request_id = request_id
+        self._pending_bias_words = clean_words
+        await self.send({
+            "type": "bias_boost_triggered",
+            "request_id": request_id,
+            "words": clean_words,
+        })
+        try:
+            await self.streamer.boost_locality_vocabulary(clean_words)
+        except Exception:
+            if self._pending_bias_request_id == request_id:
+                self._pending_bias_request_id = None
+                self._pending_bias_words = []
+            await self.send({
+                "type": "bias_boost_failed",
+                "request_id": request_id,
+            })
+            raise
 
     # ---- audit and consent ----------------------------------------------
     async def audit_and_readback(self) -> None:
         target_language = self.active_language
+        started_at = time.perf_counter()
         out = await self.engine.stage_b_statutory_audit_and_draft(self.slots, target_language)
+        await self.send_pipeline_latency("evon_stage_b", started_at)
         self.audit = out["result"]
         await self.send({"type": "evon_stage_b_complete", "thinking_trace": out["thinking_trace"], **self.audit})
         script = self.audit["timbre_v3_readback_script"]
         await self.send({"type": "timbre_audio", "script": script})
         if self.mode == "LIVE":
             try:
-                audio = await synthesize_timbre_audio(script, self.key, target_language)
-                await self.ws.send_bytes(audio)
+                started_at = time.perf_counter()
+
+                async def report_first_audio_chunk() -> None:
+                    await self.send_pipeline_latency("timbre_first_audio_chunk", started_at)
+
+                audio = await synthesize_timbre_audio(
+                    script,
+                    self.key,
+                    target_language,
+                    on_first_audio_chunk=report_first_audio_chunk,
+                )
+                await self.send_audio(audio)
                 await self.send({"type": "timbre_audio_ready"})
             except Exception as error:
                 await self.send({"type": "timbre_audio_unavailable", "message": str(error)})

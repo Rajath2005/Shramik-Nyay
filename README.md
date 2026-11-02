@@ -68,16 +68,17 @@ clients and do not call Gnani APIs or consume credits.
 
 ## Optional live API diagnostic
 
-After confirming that the credentials in `backend/.env` are valid, run the opt-in
-diagnostic from the backend directory:
+See [`docs/live-verification.md`](docs/live-verification.md) for what the
+one-shot verifier tests, required environment settings, and the exact command.
+It checks Hugging Face repository access, synthesizes a short Timbre sample, and
+sends that sample to Prisma; it does not call the Evon chat-completions endpoint.
+This diagnostic can consume API credits and should not be run automatically.
+
+Run it only once after confirming that credentials in `backend/.env` are valid:
 
 ```powershell
-cd backend
-.\venv\Scripts\activate
-python verify_live_apis.py
+Set-Location .\backend
+python .\verify_live_apis.py
 ```
 
-It checks Hugging Face model access, synthesizes a short Timbre sample, and sends
-that sample to Prisma using 1024-byte frames paced at 64 ms. The generated WAV is
-ignored by Git. This diagnostic can consume API credits and should not be run
-automatically.
+The generated WAV is ignored by Git.

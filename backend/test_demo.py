@@ -130,11 +130,20 @@ def test_live_audit_streams_timbre_audio_and_surfaces_failure():
         session.mode = "LIVE"
         session.engine.mode = "LIVE"
         session.engine.stage_b_statutory_audit_and_draft = _mock_audit_result
-        with patch("main.synthesize_timbre_audio", return_value=b"RIFF mock audio") as synthesize:
+        async def synthesize_with_first_chunk(*args, on_first_audio_chunk):
+            await on_first_audio_chunk()
+            return b"RIFF mock audio"
+
+        with patch("main.synthesize_timbre_audio", side_effect=synthesize_with_first_chunk) as synthesize:
             await session.audit_and_readback()
 
         assert socket.audio == [b"RIFF mock audio"]
         assert socket.events[-1] == {"type": "timbre_audio_ready"}
+        latency_stages = {
+            event["stage"] for event in socket.events if event["type"] == "pipeline_latency"
+        }
+        assert "evon_stage_b" in latency_stages
+        assert "timbre_first_audio_chunk" in latency_stages
         synthesize.assert_called_once()
 
     async def run_failure():
@@ -156,7 +165,193 @@ def test_live_audit_streams_timbre_audio_and_surfaces_failure():
     asyncio.run(run_failure())
 
 
-async def _mock_audit_result(slots):
+def test_live_prisma_event_reader_stays_available_during_evon_and_confirms_bias():
+    async def run():
+        socket = EventSocket()
+        session = Session(socket)
+        session.mode = "LIVE"
+        session._pending_bias_request_id = "request-1"
+        session._pending_bias_words = ["Peenya", "Thekedar"]
+        stage_started = asyncio.Event()
+        finish_stage = asyncio.Event()
+
+        async def delayed_stage_a(utterance, current, language):
+            stage_started.set()
+            await finish_stage.wait()
+            return {
+                "updated_slots": current.model_dump(),
+                "missing_fields": ["worker_name"],
+                "followup_question_spoken": "What is your name?",
+            }
+
+        session.engine.stage_a_extract_slots = delayed_stage_a
+        await session.on_prisma_event({
+            "type": "transcript",
+            "text": "I worked at Peenya",
+            "segment_latency_ms": 84.5,
+        })
+        await stage_started.wait()
+
+        await session.on_prisma_event({
+            "type": "settings_updated",
+            "config": {"bias_word_count": 2, "bias_score": 2.0},
+        })
+        assert any(
+            event["type"] == "prisma_settings_updated"
+            and event["confirmed_words"] == ["Peenya", "Thekedar"]
+            for event in socket.events
+        )
+        assert any(
+            event["type"] == "pipeline_latency"
+            and event["stage"] == "prisma_segment"
+            and event["latency_ms"] == 84.5
+            for event in socket.events
+        )
+
+        finish_stage.set()
+        await asyncio.gather(*list(session._transcript_tasks))
+        assert any(
+            event["type"] == "pipeline_latency" and event["stage"] == "evon_stage_a"
+            for event in socket.events
+        )
+
+    asyncio.run(run())
+
+
+def test_uan_does_not_claim_a_live_bias_update_when_prisma_is_not_running():
+    async def run():
+        socket = EventSocket()
+        session = Session(socket)
+
+        await session.apply_uan("100492837465")
+
+        assert any(event["type"] == "uan_result" and event["found"] for event in socket.events)
+        assert not any(event["type"] == "bias_boost_triggered" for event in socket.events)
+
+    asyncio.run(run())
+
+
+def test_typed_and_transcribed_localities_update_prisma_bias():
+    class RecordingStreamer:
+        running = True
+        connecting = False
+
+        def __init__(self):
+            self.boosted_words = []
+
+        async def boost_locality_vocabulary(self, words):
+            self.boosted_words.append(words)
+            return words
+
+    async def run():
+        async def stage_a(text, slots, language):
+            return {
+                "updated_slots": slots.model_dump(),
+                "missing_fields": ["worker_name"],
+                "followup_question_spoken": "What is your name?",
+            }
+
+        typed_socket = EventSocket()
+        typed_session = Session(typed_socket)
+        typed_session.streamer = RecordingStreamer()
+        typed_session.engine.stage_a_extract_slots = stage_a
+        await typed_session.on_command(json.dumps({
+            "type": "utterance",
+            "text": "I worked near WHITEFIELD.",
+        }))
+
+        transcript_socket = EventSocket()
+        transcript_session = Session(transcript_socket)
+        transcript_session.streamer = RecordingStreamer()
+        transcript_session.engine.stage_a_extract_slots = stage_a
+        await transcript_session.on_prisma_event({
+            "type": "transcript",
+            "text": "My worksite was in Peenya.",
+        })
+        await asyncio.gather(*list(transcript_session._transcript_tasks))
+
+        assert typed_session.streamer.boosted_words == [["Whitefield"]]
+        assert transcript_session.streamer.boosted_words == [["Peenya"]]
+        assert any(event["type"] == "bias_boost_triggered" for event in typed_socket.events)
+        assert any(event["type"] == "bias_boost_triggered" for event in transcript_socket.events)
+
+    asyncio.run(run())
+
+
+def test_live_transcript_followup_finishes_audit_and_timbre_readback():
+    async def run():
+        socket = EventSocket()
+        session = Session(socket)
+        session.mode = "LIVE"
+        session.engine.mode = "LIVE"
+        stage_a_calls = 0
+        complete_slots = FormAClaimSlots(
+            worker_name="Ramesh Kumar",
+            worksite_locality_and_sphere="Peenya",
+            contractor_name_and_phone="Mohan",
+            principal_employer_name="ABC Infrastructure",
+            wage_period_start="2026-09-01",
+            wage_period_end="2026-09-30",
+            days_worked=18,
+            agreed_daily_wage_inr=700,
+            advance_received_inr=0,
+        )
+
+        async def stage_a(utterance, current, language):
+            nonlocal stage_a_calls
+            stage_a_calls += 1
+            if stage_a_calls == 1:
+                updated = current.model_copy(update={"worker_name": "Ramesh Kumar"})
+                return {
+                    "updated_slots": updated.model_dump(),
+                    "missing_fields": ["worksite_locality_and_sphere"],
+                    "followup_question_spoken": "Where did you work?",
+                }
+            return {
+                "updated_slots": complete_slots.model_dump(),
+                "missing_fields": [],
+                "followup_question_spoken": "",
+            }
+
+        async def synthesize_with_first_chunk(*args, on_first_audio_chunk):
+            await on_first_audio_chunk()
+            return b"RIFF mock audio"
+
+        session.engine.stage_a_extract_slots = stage_a
+        session.engine.stage_b_statutory_audit_and_draft = _mock_audit_result
+        with patch("main.synthesize_timbre_audio", side_effect=synthesize_with_first_chunk):
+            await session.on_prisma_event({
+                "type": "transcript",
+                "text": "My name is Ramesh Kumar",
+                "detected_language_code": "en-IN",
+                "segment_latency_ms": 42.0,
+            })
+            await asyncio.gather(*list(session._transcript_tasks))
+            await session.on_prisma_event({
+                "type": "transcript",
+                "text": "I worked at Peenya",
+                "detected_language_code": "en-IN",
+                "segment_latency_ms": 56.0,
+            })
+            await asyncio.gather(*list(session._transcript_tasks))
+
+        stage_a_events = [event for event in socket.events if event["type"] == "evon_stage_a"]
+        assert stage_a_calls == 2
+        assert stage_a_events[0]["followup"] == "Where did you work?"
+        assert stage_a_events[1]["missing_fields"] == []
+        assert any(event["type"] == "evon_stage_b_complete" for event in socket.events)
+        assert socket.audio == [b"RIFF mock audio"]
+        latency_stages = {
+            event["stage"] for event in socket.events if event["type"] == "pipeline_latency"
+        }
+        assert latency_stages == {
+            "prisma_segment", "evon_stage_a", "evon_stage_b", "timbre_first_audio_chunk",
+        }
+
+    asyncio.run(run())
+
+
+async def _mock_audit_result(slots, language="hi-IN"):
     return {
         "thinking_trace": "",
         "result": {

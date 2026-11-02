@@ -22,6 +22,11 @@ export type AudioTelemetry = {
   latencyMs?: number
   source?: string
 }
+export type PipelineLatencyStage =
+  | 'prisma_segment'
+  | 'evon_stage_a'
+  | 'evon_stage_b'
+  | 'timbre_first_audio_chunk'
 
 const WS_URL: string = import.meta.env.VITE_WS_URL ?? 'ws://127.0.0.1:8000/ws/session'
 export const API_BASE = WS_URL.replace(/^ws/, 'http').replace(/\/ws\/session$/, '')
@@ -42,6 +47,11 @@ export function useSession() {
   const [heard, setHeard] = useState<string[]>([])
   const [events, setEvents] = useState<Ev[]>([])
   const [biasWords, setBiasWords] = useState<string[]>([])
+  const [biasSettingsUpdated, setBiasSettingsUpdated] = useState(false)
+  const [biasBoostFailed, setBiasBoostFailed] = useState(false)
+  const [pipelineLatencies, setPipelineLatencies] = useState<Partial<Record<PipelineLatencyStage, number>>>({})
+  const biasRequestRef = useRef<string | null>(null)
+  const confirmedBiasRequestRef = useRef<string | null>(null)
   const [latency, setLatency] = useState<number | null>(null)
   const [signalLevels, setSignalLevels] = useState<number[]>([])
   const [telemetry, setTelemetry] = useState<AudioTelemetry | null>(null)
@@ -67,6 +77,8 @@ export function useSession() {
           setHeard([]); setFollowup(''); setMessage(''); setTranscript(''); setDetectedLanguage('')
           setEffectiveLanguage('')
           setSignalLevels([]); setTelemetry(null); setReadback(''); setBiasWords([]); setLatency(null)
+          setBiasSettingsUpdated(false); setBiasBoostFailed(false); setPipelineLatencies({})
+          biasRequestRef.current = null; confirmedBiasRequestRef.current = null
           setTimbreAudioUrl(null); setTimbreUnavailable(false)
           break
         case 'evon_stage_a':
@@ -110,9 +122,58 @@ export function useSession() {
           if (latencyMs !== undefined) setLatency(latencyMs)
           break
         }
-        case 'bias_boost_triggered':
-          setBiasWords(Array.isArray(e.words) ? e.words.filter((word): word is string => typeof word === 'string') : [])
+        case 'pipeline_latency': {
+          const stages: PipelineLatencyStage[] = [
+            'prisma_segment', 'evon_stage_a', 'evon_stage_b', 'timbre_first_audio_chunk',
+          ]
+          if (stages.includes(e.stage as PipelineLatencyStage)) {
+            const latencyMs = numberField(e, 'latency_ms')
+            if (latencyMs !== undefined) {
+              setPipelineLatencies((current) => ({
+                ...current,
+                [e.stage as PipelineLatencyStage]: latencyMs,
+              }))
+            }
+          }
           break
+        }
+        case 'bias_boost_triggered':
+          {
+            const requestId = typeof e.request_id === 'string' ? e.request_id : null
+            biasRequestRef.current = requestId
+            setBiasWords(Array.isArray(e.words) ? e.words.filter((word): word is string => typeof word === 'string') : [])
+            setBiasSettingsUpdated(Boolean(requestId && confirmedBiasRequestRef.current === requestId))
+            setBiasBoostFailed(false)
+          }
+          break
+        case 'bias_boost_failed':
+          if (typeof e.request_id === 'string' && biasRequestRef.current === e.request_id) {
+            setBiasBoostFailed(true)
+          }
+          break
+        case 'prisma_settings_updated': {
+          const requestId = typeof e.request_id === 'string' ? e.request_id : null
+          const config = e.config
+          const confirmedWords = Array.isArray(e.confirmed_words)
+            ? e.confirmed_words.filter((word): word is string => typeof word === 'string')
+            : []
+          if (
+            requestId &&
+            config !== null &&
+            typeof config === 'object' &&
+            'bias_word_count' in config &&
+            config.bias_word_count === confirmedWords.length &&
+            'bias_score' in config &&
+            config.bias_score === 2.0
+          ) {
+            confirmedBiasRequestRef.current = requestId
+            if (biasRequestRef.current === requestId) {
+              setBiasWords(confirmedWords)
+              setBiasSettingsUpdated(true)
+            }
+          }
+          break
+        }
         case 'timbre_audio':
           setReadback(String(e.script ?? ''))
           break
@@ -178,6 +239,7 @@ export function useSession() {
 
   return {
     online, mode, slots, followup, audit, pdfUrl, jsonUrl, heard, events, biasWords,
+    biasSettingsUpdated, biasBoostFailed, pipelineLatencies,
     latency, signalLevels, telemetry, transcript, detectedLanguage, effectiveLanguage,
     languagePreference, setLanguagePreference, readback, timbreAudioUrl,
     timbreUnavailable, message, send, sendAudio,
