@@ -14,6 +14,21 @@ PRISMA_WS_URL = "wss://api.vachana.ai/stt/v3/stream"
 FRAME_BYTES = 1024            # 512 samples x 2 bytes, required by the API
 FRAME_SAMPLES = 512
 BIAS_SCORE = 2.0
+PRISMA_SEED_WORDS = [
+    "Thekedar",
+    "Mistry",
+    "Dihadi",
+    "Muster",
+    "Samadhan",
+    "UAN",
+    "Advance",
+    "Overtime",
+]
+SUBSTITUTION_MAP = [
+    {"patterns": ["thekedar"], "replacement": "Contractor (Thekedar)"},
+    {"patterns": ["dihadi"], "replacement": "Daily Wage (Dihadi)"},
+    {"patterns": ["rokda"], "replacement": "Cash Wage"},
+]
 
 
 def _is_single_word(value: str) -> bool:
@@ -61,17 +76,22 @@ class PrismaRealtimeStreamer:
         self.buffer = bytearray()
         self.ws = None
         self.running = False
+        self.connecting = False
+        self._connection_ready = asyncio.Event()
         self.connected = asyncio.Event()
+        self._audio_ready = asyncio.Event()
         self._transcript_seen = asyncio.Event()
         self._send_lock = asyncio.Lock()
+        self._last_pcm_sent_at: float | None = None
+        self._commit_sent_at: float | None = None
 
     def headers(self) -> dict[str, str]:
         h = {
             "x-api-key-id": self.api_key,
-            "x-model": "prisma-v3.0",
-            "lang_code": self.lang_code,
+            "model": "prisma-v3.0",
+            "language_code": self.lang_code,
             "x-sample-rate": str(self.sample_rate),
-            "x-format": self.fmt,
+            "format": self.fmt,
             "itn_native_numerals": "false",
             "x-vad-threshold": "0.72",
             "x-min-speech-ms": "200",
@@ -80,52 +100,101 @@ class PrismaRealtimeStreamer:
             "x-max-speech-s": "60",
         }
         if self.seed_words:
-            h["x-bias-list"] = json.dumps(self.seed_words)
-            h["x-bias-score"] = str(BIAS_SCORE)
+            h["keyterms"] = json.dumps(self.seed_words)
+        h["enable_substitution"] = "true"
+        h["substitution_map"] = json.dumps(SUBSTITUTION_MAP)
         return h
 
     def push_pcm_bytes(self, raw: bytes) -> None:
         self.buffer.extend(raw)
 
     async def connect_and_run(self) -> None:
-        async with websocket_connect(self.ws_url, additional_headers=self.headers()) as ws:
-            self.ws, self.running = ws, True
-            await asyncio.gather(self._pace(), self._listen())
+        self.connecting = True
+        try:
+            async with websocket_connect(self.ws_url, additional_headers=self.headers()) as ws:
+                self.ws, self.running = ws, True
+                self._connection_ready.set()
+                await asyncio.gather(self._pace(), self._listen())
+        finally:
+            self.running = False
+            self.connecting = False
+            self._connection_ready.set()
+            self._audio_ready.set()
 
     async def _pace(self) -> None:
+        await self._audio_ready.wait()
+        if not self.running or not self.connected.is_set():
+            return
         silence = bytes(FRAME_BYTES)
         loop = asyncio.get_running_loop()
         deadline = loop.time()
         while self.running:
-            if len(self.buffer) >= FRAME_BYTES:
+            has_pcm = len(self.buffer) >= FRAME_BYTES
+            if has_pcm:
                 frame = bytes(self.buffer[:FRAME_BYTES])
                 del self.buffer[:FRAME_BYTES]
             else:
                 frame = silence
             async with self._send_lock:
                 await self.ws.send(frame)
+            if has_pcm:
+                self._last_pcm_sent_at = loop.time()
             deadline += self.cadence                      # absolute schedule: no drift
             await asyncio.sleep(max(0.0, deadline - loop.time()))
 
     async def _listen(self) -> None:
-        async for message in self.ws:
-            event = json.loads(message)
-            if event.get("type") == "connected":
-                self.connected.set()
-            elif event.get("type") == "transcript":
-                self._transcript_seen.set()
-            await self.on_server_event(event)
+        try:
+            async for message in self.ws:
+                event = json.loads(message)
+                if event.get("type") == "connected":
+                    self.connected.set()
+                    self._audio_ready.set()
+                elif event.get("type") == "transcript":
+                    loop = asyncio.get_running_loop()
+                    latency_origin = (
+                        self._commit_sent_at
+                        if self._commit_sent_at is not None
+                        else self._last_pcm_sent_at
+                    )
+                    if latency_origin is not None:
+                        event["segment_latency_ms"] = round(
+                            max(0.0, loop.time() - latency_origin) * 1000, 1
+                        )
+                    self._commit_sent_at = None
+                    self._last_pcm_sent_at = None
+                    self._transcript_seen.set()
+                await self.on_server_event(event)
+        finally:
+            self.running = False
+            self._audio_ready.set()
 
     async def boost_locality_vocabulary(self, words: list[str]) -> list[str]:
         clean = sanitize_bias_words(words)
-        if self.ws and self.running and clean:
-            async with self._send_lock:
-                await self.ws.send(json.dumps({"type": "update_settings",
-                                               "bias": {"list": clean, "score": BIAS_SCORE}}))
+        if not clean:
+            return clean
+        if not self.running and not self.connecting:
+            raise RuntimeError("Cannot update Prisma word bias while the stream is inactive.")
+        if not self.connected.is_set():
+            try:
+                await asyncio.wait_for(self.connected.wait(), timeout=10.0)
+            except asyncio.TimeoutError as error:
+                raise RuntimeError("Timed out waiting for Prisma connection before updating word bias.") from error
+        if not self.ws or not self.running:
+            raise RuntimeError("Cannot update Prisma word bias after the stream has stopped.")
+        async with self._send_lock:
+            await self.ws.send(json.dumps({"type": "update_settings",
+                                           "bias": {"list": clean, "score": BIAS_SCORE}}))
         return clean   # confirm via the `settings_updated` event (check bias_word_count)
 
     async def commit_and_close(self) -> None:
         if not self.ws:
+            if not self.connecting:
+                return
+            await self._connection_ready.wait()
+        if not self.ws:
+            return
+        await self._audio_ready.wait()
+        if not self.running or not self.connected.is_set():
             return
         remainder = len(self.buffer) % FRAME_BYTES
         if remainder:
@@ -134,6 +203,7 @@ class PrismaRealtimeStreamer:
         while self.buffer:
             await asyncio.sleep(self.cadence)
         async with self._send_lock:
+            self._commit_sent_at = asyncio.get_running_loop().time()
             await self.ws.send(json.dumps({"type": "commit"}))
         try:
             await asyncio.wait_for(self._transcript_seen.wait(), timeout=3.0)
