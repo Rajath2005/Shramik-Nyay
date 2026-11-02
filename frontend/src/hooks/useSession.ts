@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { isLanguagePreference, type LanguagePreference } from '../language'
 
 export type Slots = Record<string, string | number | null>
 export type Check = { id: string; label: string; status: string; detail: string }
@@ -13,9 +14,22 @@ export type Audit = {
   notice: string
 }
 export type Ev = { type: string; [key: string]: unknown }
+export type AudioTelemetry = {
+  frameBytes?: number
+  cadenceMs?: number
+  sampleRateHz?: number
+  vadThreshold?: number
+  latencyMs?: number
+  source?: string
+}
 
 const WS_URL: string = import.meta.env.VITE_WS_URL ?? 'ws://127.0.0.1:8000/ws/session'
 export const API_BASE = WS_URL.replace(/^ws/, 'http').replace(/\/ws\/session$/, '')
+
+function numberField(event: Ev, key: string): number | undefined {
+  const value = event[key]
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined
+}
 
 export function useSession() {
   const ws = useRef<WebSocket | null>(null)
@@ -29,6 +43,17 @@ export function useSession() {
   const [events, setEvents] = useState<Ev[]>([])
   const [biasWords, setBiasWords] = useState<string[]>([])
   const [latency, setLatency] = useState<number | null>(null)
+  const [signalLevels, setSignalLevels] = useState<number[]>([])
+  const [telemetry, setTelemetry] = useState<AudioTelemetry | null>(null)
+  const [transcript, setTranscript] = useState('')
+  const [detectedLanguage, setDetectedLanguage] = useState('')
+  const [effectiveLanguage, setEffectiveLanguage] = useState('')
+  const [languagePreference, setLanguagePreferenceState] = useState<LanguagePreference>('auto')
+  const languagePreferenceRef = useRef<LanguagePreference>('auto')
+  const [readback, setReadback] = useState('')
+  const [jsonUrl, setJsonUrl] = useState<string | null>(null)
+  const [timbreAudioUrl, setTimbreAudioUrl] = useState<string | null>(null)
+  const [timbreUnavailable, setTimbreUnavailable] = useState(false)
   const [message, setMessage] = useState('')
 
   useEffect(() => {
@@ -38,7 +63,11 @@ export function useSession() {
       setEvents((cur) => [...cur.slice(-39), e])
       switch (e.type) {
         case 'session_started':
-          setMode(String(e.mode)); setSlots({}); setAudit(null); setPdfUrl(null); setHeard([]); setFollowup(''); setMessage('')
+          setMode(String(e.mode)); setSlots({}); setAudit(null); setPdfUrl(null); setJsonUrl(null)
+          setHeard([]); setFollowup(''); setMessage(''); setTranscript(''); setDetectedLanguage('')
+          setEffectiveLanguage('')
+          setSignalLevels([]); setTelemetry(null); setReadback(''); setBiasWords([]); setLatency(null)
+          setTimbreAudioUrl(null); setTimbreUnavailable(false)
           break
         case 'evon_stage_a':
           setSlots(e.slots as Slots); setFollowup(String(e.followup ?? ''))
@@ -47,13 +76,53 @@ export function useSession() {
           setAudit(e as unknown as Audit)
           break
         case 'prisma_transcript':
-          setHeard((cur) => [...cur.slice(-5), String(e.text)]); setLatency(Number(e.latency ?? 0))
+          setTranscript(String(e.text ?? ''))
+          setDetectedLanguage(String(e.detected_language_code ?? ''))
+          if (typeof e.effective_language === 'string') setEffectiveLanguage(e.effective_language)
+          setHeard((cur) => [...cur.slice(-5), String(e.text ?? '')])
+          setLatency(numberField(e, 'latency') ?? null)
           break
+        case 'language_status':
+          {
+            const preference = typeof e.language_preference === 'string' && isLanguagePreference(e.language_preference)
+              ? e.language_preference
+              : 'auto'
+            setLanguagePreferenceState(preference)
+            languagePreferenceRef.current = preference
+          }
+          setEffectiveLanguage(typeof e.effective_language === 'string' ? e.effective_language : '')
+          break
+        case 'prisma_telemetry': {
+          const waveform = Array.isArray(e.waveform)
+            ? e.waveform.filter((value): value is number => typeof value === 'number' && Number.isFinite(value))
+              .map((value) => Math.max(0, Math.min(1, value)))
+            : []
+          if (waveform.length) setSignalLevels(waveform)
+          const latencyMs = numberField(e, 'latency_ms')
+          setTelemetry({
+            frameBytes: numberField(e, 'frame_bytes'),
+            cadenceMs: numberField(e, 'cadence_ms'),
+            sampleRateHz: numberField(e, 'sample_rate_hz'),
+            vadThreshold: numberField(e, 'vad_threshold'),
+            latencyMs,
+            source: typeof e.source === 'string' ? e.source : undefined,
+          })
+          if (latencyMs !== undefined) setLatency(latencyMs)
+          break
+        }
         case 'bias_boost_triggered':
-          setBiasWords(e.words as string[])
+          setBiasWords(Array.isArray(e.words) ? e.words.filter((word): word is string => typeof word === 'string') : [])
+          break
+        case 'timbre_audio':
+          setReadback(String(e.script ?? ''))
+          break
+        case 'timbre_audio_unavailable':
+          setTimbreUnavailable(true)
+          setMessage(`Timbre read-back unavailable: ${String(e.message ?? 'No audio was returned.')}`)
           break
         case 'claim_ready':
           setPdfUrl(API_BASE + String(e.pdf_url))
+          setJsonUrl(API_BASE + String(e.json_url))
           break
         case 'uan_result':
           if (!e.found) setMessage('UAN not found in the demo registry.')
@@ -65,22 +134,52 @@ export function useSession() {
     }
     const open = () => {
       sock = new WebSocket(WS_URL)
+      sock.binaryType = 'arraybuffer'
       ws.current = sock
-      sock.onopen = () => setOnline(true)
+      sock.onopen = () => {
+        setOnline(true)
+        sock.send(JSON.stringify({ type: 'set_language', language: languagePreferenceRef.current }))
+      }
       sock.onclose = () => { setOnline(false); if (!closed) window.setTimeout(open, 1500) }
-      sock.onmessage = (m) => handle(JSON.parse(m.data))
+      sock.onmessage = (m) => {
+        if (typeof m.data === 'string') {
+          handle(JSON.parse(m.data))
+          return
+        }
+        const audio = m.data instanceof Blob ? m.data : new Blob([m.data], { type: 'audio/wav' })
+        setTimbreAudioUrl((current) => {
+          if (current) URL.revokeObjectURL(current)
+          return URL.createObjectURL(audio)
+        })
+      }
     }
     open()
     return () => { closed = true; sock.close() }
   }, [])
 
+  useEffect(() => () => {
+    if (timbreAudioUrl) URL.revokeObjectURL(timbreAudioUrl)
+  }, [timbreAudioUrl])
+
   const send = useCallback((cmd: object) => {
     if (ws.current?.readyState === WebSocket.OPEN) ws.current.send(JSON.stringify(cmd))
     else setMessage('Not connected to the claim service. Wait for reconnection and try again.')
+  }, [])
+  const setLanguagePreference = useCallback((language: LanguagePreference) => {
+    languagePreferenceRef.current = language
+    setLanguagePreferenceState(language)
+    if (ws.current?.readyState === WebSocket.OPEN) {
+      ws.current.send(JSON.stringify({ type: 'set_language', language }))
+    }
   }, [])
   const sendAudio = useCallback((buf: ArrayBuffer) => {
     if (ws.current?.readyState === WebSocket.OPEN) ws.current.send(buf)
   }, [])
 
-  return { online, mode, slots, followup, audit, pdfUrl, heard, events, biasWords, latency, message, send, sendAudio }
+  return {
+    online, mode, slots, followup, audit, pdfUrl, jsonUrl, heard, events, biasWords,
+    latency, signalLevels, telemetry, transcript, detectedLanguage, effectiveLanguage,
+    languagePreference, setLanguagePreference, readback, timbreAudioUrl,
+    timbreUnavailable, message, send, sendAudio,
+  }
 }

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import json
 from pathlib import Path
 
@@ -16,7 +15,8 @@ def compile_form_a(slots: FormAClaimSlots, audit: dict, output_directory: Path) 
         "form": "Form A - Payment of Wages Act, 1936",
         "slots": slots.model_dump(),
         "audit": audit,
-        "voice_consent_sha256": hashlib.sha256(slots.model_dump_json().encode()).hexdigest(),
+        "voice_consent_recorded": False,
+        "voice_consent_sha256": None,
     }
     json_path = output_directory / "form-a-claim.json"
     json_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")

@@ -8,16 +8,16 @@ import wave
 from pathlib import Path
 
 import httpx
-import websockets
 from dotenv import load_dotenv
+from websockets.asyncio.client import connect as websocket_connect
 
 ROOT = Path(__file__).parent
 load_dotenv(ROOT / ".env")
 
 GNANI_API_KEY = os.getenv("GNANI_API_KEY", "").strip()
 HF_TOKEN = os.getenv("HF_TOKEN", "").strip()
-TIMBRE_WS_URL = "wss://api.vachana.ai/api/v1/tts"
-PRISMA_WS_URL = "wss://api.vachana.ai/stt/v3/stream"
+TIMBRE_WS_URL = os.getenv("GNANI_TTS_API_URL", "wss://api.vachana.ai/api/v1/tts")
+PRISMA_WS_URL = os.getenv("GNANI_STT_WS_URL", "wss://api.vachana.ai/stt/v3/stream")
 FIXTURE_WAV = ROOT / "fixtures" / "live_tts_8khz.wav"
 
 
@@ -52,7 +52,7 @@ async def synthesize_timbre() -> bytes:
         },
     }
     audio = bytearray()
-    async with websockets.connect(
+    async with websocket_connect(
         TIMBRE_WS_URL,
         additional_headers={"x-api-key-id": GNANI_API_KEY, "Content-Type": "application/json"},
     ) as websocket:
@@ -98,7 +98,7 @@ async def check_prisma(wav_bytes: bytes) -> None:
         "x-min-silence-ms": "700",
         "x-min-segment-ms": "150",
     }
-    async with websockets.connect(PRISMA_WS_URL, additional_headers=headers) as websocket:
+    async with websocket_connect(PRISMA_WS_URL, additional_headers=headers) as websocket:
         await websocket.send(json.dumps({
             "type": "update_settings",
             "bias": {"list": ["Peenya", "Thekedar", "Dihadi", "Ramesh"], "score": 2.0},

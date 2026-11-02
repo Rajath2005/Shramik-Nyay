@@ -2,16 +2,31 @@ from __future__ import annotations
 
 import asyncio
 import json
-import re
+import os
+import unicodedata
 from collections.abc import Awaitable, Callable
 
-import websockets
+from websockets.asyncio.client import connect as websocket_connect
+
+from language_support import prisma_language_code
 
 PRISMA_WS_URL = "wss://api.vachana.ai/stt/v3/stream"
 FRAME_BYTES = 1024            # 512 samples x 2 bytes, required by the API
 FRAME_SAMPLES = 512
 BIAS_SCORE = 2.0
-_WORD = re.compile(r"^[^\W\d_]+$", re.UNICODE)   # letters only, no digits/spaces
+
+
+def _is_single_word(value: str) -> bool:
+    has_letter = False
+    for character in value:
+        category = unicodedata.category(character)
+        if category.startswith("L"):
+            has_letter = True
+        elif category.startswith("M") and has_letter:
+            continue
+        else:
+            return False
+    return has_letter
 
 
 def sanitize_bias_words(words: list[str]) -> list[str]:
@@ -19,7 +34,7 @@ def sanitize_bias_words(words: list[str]) -> list[str]:
     seen: dict[str, None] = {}
     for word in words:
         word = word.strip()
-        if word and _WORD.match(word):
+        if word and _is_single_word(word):
             seen.setdefault(word, None)
     return list(seen)[:100]
 
@@ -30,10 +45,16 @@ class PrismaRealtimeStreamer:
 
     def __init__(self, api_key: str, on_server_event: Callable[[dict], Awaitable[None]],
                  *, sample_rate: int = 8000, lang_code: str = "hi-IN,en-IN",
-                 fmt: str = "transcribe", seed_words: list[str] | None = None) -> None:
+                 fmt: str = "transcribe", seed_words: list[str] | None = None,
+                 ws_url: str | None = None) -> None:
         if sample_rate not in (8000, 16000):
             raise ValueError("sample_rate must be 8000 or 16000")
+        if lang_code != "hi-IN,en-IN" and lang_code not in {
+            prisma_language_code("auto"), prisma_language_code("kn-IN"), prisma_language_code("en-IN")
+        }:
+            raise ValueError("lang_code must be a supported Prisma language preference.")
         self.api_key, self.on_server_event = api_key, on_server_event
+        self.ws_url = ws_url or os.getenv("GNANI_STT_WS_URL", PRISMA_WS_URL)
         self.sample_rate, self.lang_code, self.fmt = sample_rate, lang_code, fmt
         self.seed_words = sanitize_bias_words(seed_words or [])
         self.cadence = FRAME_SAMPLES / sample_rate        # 0.064 s at 8 kHz
@@ -67,7 +88,7 @@ class PrismaRealtimeStreamer:
         self.buffer.extend(raw)
 
     async def connect_and_run(self) -> None:
-        async with websockets.connect(PRISMA_WS_URL, additional_headers=self.headers()) as ws:
+        async with websocket_connect(self.ws_url, additional_headers=self.headers()) as ws:
             self.ws, self.running = ws, True
             await asyncio.gather(self._pace(), self._listen())
 

@@ -7,7 +7,7 @@ from typing import Any
 import httpx
 from pydantic import BaseModel, ConfigDict
 
-from hindi_numbers import number_to_hindi_words
+from language_support import FOLLOWUPS, LANGUAGE_NAMES, readback_script, resolve_language, validate_language
 from legal_rules import compute_claim
 
 MODEL_NAME = "gnani/gnani-evon-v3.3-30B-A3B"   # TODO verify against your serving endpoint
@@ -36,18 +36,6 @@ REQUIRED = [
     "days_worked", "agreed_daily_wage_inr", "advance_received_inr",
 ]
 
-FOLLOWUPS_HI = {
-    "worker_name": "आपका पूरा नाम क्या है?",
-    "worksite_locality_and_sphere": "आप किस जगह या साइट पर काम करते थे?",
-    "contractor_name_and_phone": "ठेकेदार का नाम और फोन नंबर बताइए।",
-    "principal_employer_name": "साइट किस कंपनी या मालिक की थी?",
-    "wage_period_start": "आपने किस तारीख से काम शुरू किया था?",
-    "wage_period_end": "आख़िरी काम का दिन कौन सा था?",
-    "days_worked": "कुल कितने दिन काम किया?",
-    "agreed_daily_wage_inr": "रोज़ की दिहाड़ी कितनी तय थी?",
-    "advance_received_inr": "अब तक कुल कितने रुपये मिले हैं? कुछ नहीं मिला तो शून्य बोलिए।",
-}
-
 STAGE_A_PROMPT = (
     "Respond in the same language and script as the question. "
     "You extract wage-claim facts from a worker's spoken statement (code-mixed Hindi/English). "
@@ -73,6 +61,10 @@ class EvonLegalEngine:
         self.endpoint_url, self.api_key, self.mode = endpoint_url, api_key, mode
 
     async def _chat(self, messages: list[dict], *, thinking: bool, timeout: float) -> dict:
+        if not self.endpoint_url:
+            raise RuntimeError("EVON_ENDPOINT_URL is required in LIVE mode.")
+        if not self.api_key:
+            raise RuntimeError("GNANI_API_KEY is required in LIVE mode.")
         payload = {
             "model": MODEL_NAME, "messages": messages, "temperature": 0.6, "top_p": 0.95,
             "repetition_penalty": 1.0 if thinking else 1.1,
@@ -85,11 +77,19 @@ class EvonLegalEngine:
             r.raise_for_status()
             return r.json()["choices"][0]["message"]
 
-    async def stage_a_extract_slots(self, utterance: str, current: FormAClaimSlots) -> dict[str, Any]:
+    async def stage_a_extract_slots(
+        self, utterance: str, current: FormAClaimSlots, language: str = "hi-IN"
+    ) -> dict[str, Any]:
+        target_language = resolve_language(validate_language(language), text=utterance)
         if self.mode != "LIVE":
-            return self._finish_turn(current)            # mock: no extraction, still asks the next question
+            return self._finish_turn(current, target_language)
+        language_instruction = (
+            "Let the worker's utterance determine the language."
+            if language == "auto"
+            else f"Write the follow-up in {LANGUAGE_NAMES[target_language]} using its native script."
+        )
         msg = await self._chat(
-            [{"role": "system", "content": STAGE_A_PROMPT},
+            [{"role": "system", "content": f"{STAGE_A_PROMPT} {language_instruction}"},
              {"role": "user", "content": f"SLOTS: {current.model_dump_json()}\nUTTERANCE: {utterance}"}],
             thinking=False, timeout=15.0)
         data = _extract_json(msg["content"])
@@ -97,15 +97,18 @@ class EvonLegalEngine:
         for key, value in (data.get("updated_slots") or {}).items():
             if key in merged and value not in (None, ""):
                 merged[key] = value
-        return self._finish_turn(FormAClaimSlots.model_validate(merged))
+        return self._finish_turn(FormAClaimSlots.model_validate(merged), target_language)
 
     @staticmethod
-    def _finish_turn(slots: FormAClaimSlots) -> dict[str, Any]:
+    def _finish_turn(slots: FormAClaimSlots, language: str = "hi-IN") -> dict[str, Any]:
         missing = missing_fields(slots)
         return {"updated_slots": slots.model_dump(), "missing_fields": missing,
-                "followup_question_spoken": FOLLOWUPS_HI[missing[0]] if missing else ""}
+                "followup_question_spoken": FOLLOWUPS[resolve_language(validate_language(language))][missing[0]] if missing else ""}
 
-    async def stage_b_statutory_audit_and_draft(self, s: FormAClaimSlots) -> dict[str, Any]:
+    async def stage_b_statutory_audit_and_draft(
+        self, s: FormAClaimSlots, language: str = "hi-IN"
+    ) -> dict[str, Any]:
+        target_language = resolve_language(validate_language(language))
         calc = compute_claim(
             days_worked=s.days_worked, daily_wage=s.agreed_daily_wage_inr,
             advance_received=s.advance_received_inr or 0,
@@ -117,15 +120,14 @@ class EvonLegalEngine:
             "legal_audit_summary": f"Principal arrears Rs {principal} computed from {s.days_worked} days x Rs {s.agreed_daily_wage_inr}.",
             "form_a_clauses": [],
             # Spoken form is built deterministically so numbers are always expanded to words.
-            "timbre_v3_readback_script": (
-                f"<slow>आपकी बकाया मज़दूरी {number_to_hindi_words(principal)} रुपये है।</slow> <pauses> "
-                "क्या मैं यह शिकायत भेज दूँ? हाँ या ना बोलिए।"),
+            "timbre_v3_readback_script": readback_script(principal, target_language),
         }
         trace = ""
         if self.mode == "LIVE":
             try:
                 msg = await self._chat(
                     [{"role": "system", "content": "Respond in the same language and script as the question. "
+                      f"Write the worker-facing draft in {LANGUAGE_NAMES[target_language]} using its native script. "
                       "You are a labour-law drafting assistant. Return ONLY JSON "
                       '{"legal_audit_summary": str, "form_a_clauses": [5 short strings]}. '
                       "Use ONLY the figures provided; never recompute money."},
