@@ -51,7 +51,7 @@ export default function App() {
   const [engineer, setEngineer] = useState(false)
   const [dark, setDark] = useState(() => window.matchMedia('(prefers-color-scheme: dark)').matches)
   const [voice, setVoice] = useState(true)
-  const [noise, setNoise] = useState(false)
+  const [noiseLevel, setNoiseLevel] = useState(0)
   const [typed, setTyped] = useState('')
   const [uan, setUan] = useState('')
   const [audioNotice, setAudioNotice] = useState('')
@@ -91,6 +91,7 @@ export default function App() {
   const question = s.followup || (done === 0 ? copy.welcome : copy.thankYou)
   const waveform = s.telemetry?.source === 'mock' ? s.signalLevels : mic.levels
   const levels = waveform.length ? waveform : EMPTY_WAVEFORM
+  const noiseFloor = noiseLevel / 100 * 0.1
 
   return (
     <main className="app">
@@ -168,7 +169,7 @@ export default function App() {
             <button
               className={`quiet-button mic-button ${mic.live ? 'is-live' : ''}`}
               disabled={(!s.online || s.mode !== 'LIVE') && !mic.live}
-              onClick={() => (mic.live ? mic.stop() : void mic.start(noise))}
+              onClick={() => (mic.live ? mic.stop() : void mic.start(noiseLevel))}
             >
               {mic.live ? copy.stopSpeaking : copy.startSpeaking}
             </button>
@@ -177,10 +178,24 @@ export default function App() {
           {mic.error && <p className="inline-error" role="alert">{mic.error}</p>}
           {s.message && <p className="inline-error" role="status">{s.message}</p>}
           {s.mode === 'LIVE' && (
-            <label className="noise-toggle">
-              <input type="checkbox" checked={noise} onChange={(event) => setNoise(event.target.checked)} />
-              {copy.simulateNoise}
-            </label>
+            <div className="noise-control">
+              <label htmlFor="noise-level">{copy.simulateNoise}</label>
+              <input
+                id="noise-level"
+                type="range"
+                min="0"
+                max="100"
+                step="1"
+                value={noiseLevel}
+                aria-valuetext={`${noiseLevel}%`}
+                onChange={(event) => {
+                  const level = Number(event.target.value)
+                  setNoiseLevel(level)
+                  mic.updateNoiseLevel(level)
+                }}
+              />
+              <output htmlFor="noise-level">{noiseLevel}%</output>
+            </div>
           )}
         </div>
       </section>
@@ -188,7 +203,8 @@ export default function App() {
       <section className="studio-grid" aria-label="Claim processing studio">
         <article className="panel acoustic-panel">
           <PanelHeading title={copy.audioLine} detail={s.telemetry?.source === 'mock' ? copy.syntheticReplay : mic.live ? copy.microphoneLive : copy.waitingSpeech} />
-          <div className="waveform" role="img" aria-label={mic.live ? 'Live microphone level' : 'Sample audio waveform'}>
+          <div className="waveform" role="img" aria-label={mic.live ? 'Live microphone level with ambient noise floor' : 'Sample audio waveform'}>
+            {mic.live && noiseFloor > 0 && <span className="noise-floor" aria-hidden="true" style={{ bottom: `${8 + noiseFloor * 92}%` }} />}
             {levels.map((level, index) => <i key={index} style={{ height: `${Math.max(7, 8 + level * 92)}%` }} />)}
           </div>
           <div className="signal-caption"><span>8 kHz narrowband</span><span>{mic.live ? copy.inputActive : s.telemetry?.source === 'mock' ? copy.replayComplete : copy.noAudio}</span></div>

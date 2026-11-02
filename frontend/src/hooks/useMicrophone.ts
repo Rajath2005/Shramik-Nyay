@@ -15,7 +15,15 @@ export function useMicrophone({ onFrame, onStart, onStop }: Options) {
     parts.current = null; setLive(false); onStop()
   }, [onStop])
 
-  const start = useCallback(async (simulateNoise: boolean) => {
+  const noiseLevel = useRef(0)
+  const updateNoiseLevel = useCallback((level: number) => {
+    if (!Number.isFinite(level)) return
+    noiseLevel.current = Math.max(0, Math.min(100, level))
+    parts.current?.node.port.postMessage({ level: noiseLevel.current })
+  }, [])
+
+  const start = useCallback(async (initialNoiseLevel: number) => {
+    updateNoiseLevel(initialNoiseLevel)
     setError('')
     let stream: MediaStream | undefined
     let ctx: AudioContext | undefined
@@ -27,7 +35,7 @@ export function useMicrophone({ onFrame, onStart, onStop }: Options) {
       const node = new AudioWorkletNode(ctx, 'pcm-8k')
       const mute = ctx.createGain()
       mute.gain.value = 0
-      node.port.postMessage({ noise: simulateNoise ? 0.05 : 0 })
+      node.port.postMessage({ level: noiseLevel.current })
       node.port.onmessage = (e: MessageEvent<ArrayBuffer>) => {
         onFrame(e.data)
         const pcm = new Int16Array(e.data)
@@ -45,7 +53,7 @@ export function useMicrophone({ onFrame, onStart, onStop }: Options) {
       if (ctx && ctx.state !== 'closed') await ctx.close()
       setError('Microphone blocked. Allow microphone access in the browser, or type the answer instead.')
     }
-  }, [onFrame, onStart])
+  }, [onFrame, onStart, updateNoiseLevel])
 
-  return { live, levels, error, start, stop }
+  return { live, levels, error, start, stop, updateNoiseLevel }
 }

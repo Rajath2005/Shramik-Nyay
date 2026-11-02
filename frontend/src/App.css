@@ -188,8 +188,16 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .mode-note, .inline-error { margin: 0; font-size: 12px; }
 .mode-note { color: var(--mute); }
 .inline-error { color: var(--red); font-weight: 700; }
-.noise-toggle { display: flex; align-items: center; gap: 7px; color: var(--mute); font-size: 12px; }
-.noise-toggle input { accent-color: var(--blue); }
+.noise-control {
+  display: grid;
+  grid-template-columns: minmax(110px, auto) minmax(120px, 220px) 42px;
+  align-items: center;
+  gap: 9px;
+  color: var(--mute);
+  font-size: 12px;
+}
+.noise-control input { width: 100%; accent-color: var(--amber); }
+.noise-control output { color: var(--ink); font-variant-numeric: tabular-nums; text-align: right; }
 
 .studio-grid {
   display: grid;
@@ -209,6 +217,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .panel-heading > span { color: var(--mute); font-size: 11px; text-align: right; }
 
 .waveform {
+  position: relative;
   height: 82px;
   display: flex;
   align-items: center;
@@ -220,6 +229,8 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
   background: var(--bg);
 }
 .waveform i {
+  position: relative;
+  z-index: 1;
   flex: 1;
   min-width: 2px;
   max-width: 10px;
@@ -227,6 +238,15 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
   background: var(--blue);
   opacity: .9;
   transition: height 100ms linear;
+}
+.noise-floor {
+  position: absolute;
+  z-index: 2;
+  right: 10px;
+  left: 10px;
+  border-top: 1px dashed var(--amber);
+  opacity: .9;
+  pointer-events: none;
 }
 .signal-caption { justify-content: space-between; margin: 7px 0 11px; color: var(--mute); font-size: 11px; }
 .telemetry-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 7px; }
@@ -373,6 +393,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
   .intake { padding: 13px; }
   .panel { padding: 13px; }
   .language-control { align-items: flex-start; flex-wrap: wrap; }
+  .noise-control { grid-template-columns: minmax(100px, auto) minmax(100px, 1fr) 40px; }
   .uan-entry { flex: 1; }
   .uan-entry input { width: 100%; }
   .action-row > .replay-button, .action-row > .mic-button { flex: 1; }

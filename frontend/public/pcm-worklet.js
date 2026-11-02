@@ -1,3 +1,5 @@
+import { createConstructionTrafficNoise, createTelephonyBandpass } from './audio-dsp.js'
+
 // Downsamples mic audio to 8 kHz mono Int16 and emits exactly 512 samples (1024 bytes) per message.
 class Pcm8k extends AudioWorkletProcessor {
   constructor() {
@@ -5,14 +7,21 @@ class Pcm8k extends AudioWorkletProcessor {
     this.ratio = sampleRate / 8000
     this.pos = 0; this.acc = 0; this.n = 0
     this.out = new Int16Array(512); this.k = 0
-    this.noise = 0
-    this.port.onmessage = (e) => { this.noise = e.data.noise ?? 0 }
+    this.noiseLevel = 0
+    this.ambientNoise = createConstructionTrafficNoise(sampleRate)
+    this.bandpass = createTelephonyBandpass(sampleRate)
+    this.port.onmessage = (e) => {
+      const level = e.data?.level
+      if (Number.isFinite(level)) this.noiseLevel = Math.max(0, Math.min(100, level)) / 100
+    }
   }
   process(inputs) {
     const ch = inputs[0][0]
     if (!ch) return true
     for (let i = 0; i < ch.length; i++) {
-      this.acc += ch[i] + (this.noise ? (Math.random() * 2 - 1) * this.noise : 0)
+      const noise = this.noiseLevel > 0 ? this.ambientNoise() * this.noiseLevel * 0.8 : 0
+      const mixed = ch[i] + noise
+      this.acc += this.bandpass(mixed)
       this.n++; this.pos++
       if (this.pos >= this.ratio) {            // box-filter average = cheap anti-alias
         this.pos -= this.ratio
