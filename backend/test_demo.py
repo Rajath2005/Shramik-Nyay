@@ -58,6 +58,8 @@ def test_mock_replay_is_synthetic_and_deterministic():
     assert claim["slots"]["worker_name"] == "Ramesh Kumar Verma"
     assert claim["slots"]["days_worked"] == 18
     assert audit["principal_arrears_inr"] == 10600
+    assert audit["stage"] == "B"
+    assert audit["enable_thinking"] is True
     assert any(event["type"] == "timbre_audio" for event in socket.events)
 
 
@@ -354,6 +356,7 @@ def test_live_transcript_followup_finishes_audit_and_timbre_readback():
 async def _mock_audit_result(slots, language="hi-IN"):
     return {
         "thinking_trace": "",
+        "enable_thinking": True,
         "result": {
             "principal_arrears_inr": 0,
             "timbre_v3_readback_script": "<slow>शून्य रुपये</slow>",

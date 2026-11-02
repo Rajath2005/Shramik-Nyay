@@ -3,6 +3,11 @@ import { isLanguagePreference, type LanguagePreference } from '../language'
 
 export type Slots = Record<string, string | number | null>
 export type Check = { id: string; label: string; status: string; detail: string }
+export type EvonReasoning = {
+  stage: 'A' | 'B'
+  enableThinking: boolean
+  thinkingTrace: string
+}
 export type Audit = {
   principal_arrears_inr: number
   gross_wages_inr: number
@@ -43,6 +48,7 @@ export function useSession() {
   const [slots, setSlots] = useState<Slots>({})
   const [followup, setFollowup] = useState('')
   const [audit, setAudit] = useState<Audit | null>(null)
+  const [reasoning, setReasoning] = useState<EvonReasoning | null>(null)
   const [pdfUrl, setPdfUrl] = useState<string | null>(null)
   const [heard, setHeard] = useState<string[]>([])
   const [events, setEvents] = useState<Ev[]>([])
@@ -73,7 +79,7 @@ export function useSession() {
       setEvents((cur) => [...cur.slice(-39), e])
       switch (e.type) {
         case 'session_started':
-          setMode(String(e.mode)); setSlots({}); setAudit(null); setPdfUrl(null); setJsonUrl(null)
+          setMode(String(e.mode)); setSlots({}); setAudit(null); setReasoning(null); setPdfUrl(null); setJsonUrl(null)
           setHeard([]); setFollowup(''); setMessage(''); setTranscript(''); setDetectedLanguage('')
           setEffectiveLanguage('')
           setSignalLevels([]); setTelemetry(null); setReadback(''); setBiasWords([]); setLatency(null)
@@ -86,6 +92,20 @@ export function useSession() {
           break
         case 'evon_stage_b_complete':
           setAudit(e as unknown as Audit)
+          if (
+            (e.stage === 'A' || e.stage === 'B')
+            && typeof e.enable_thinking === 'boolean'
+            && typeof e.thinking_trace === 'string'
+          ) {
+            setReasoning({
+              stage: e.stage,
+              enableThinking: e.enable_thinking,
+              thinkingTrace: e.thinking_trace,
+            })
+          } else {
+            setReasoning(null)
+            setMessage('Evon reasoning metadata was missing from the Stage B event.')
+          }
           break
         case 'prisma_transcript':
           setTranscript(String(e.text ?? ''))
@@ -238,7 +258,7 @@ export function useSession() {
   }, [])
 
   return {
-    online, mode, slots, followup, audit, pdfUrl, jsonUrl, heard, events, biasWords,
+    online, mode, slots, followup, audit, reasoning, pdfUrl, jsonUrl, heard, events, biasWords,
     biasSettingsUpdated, biasBoostFailed, pipelineLatencies,
     latency, signalLevels, telemetry, transcript, detectedLanguage, effectiveLanguage,
     languagePreference, setLanguagePreference, readback, timbreAudioUrl,

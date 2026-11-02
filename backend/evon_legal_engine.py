@@ -123,6 +123,7 @@ class EvonLegalEngine:
             "timbre_v3_readback_script": readback_script(principal, target_language),
         }
         trace = ""
+        enable_thinking = True
         if self.mode == "LIVE":
             try:
                 msg = await self._chat(
@@ -132,7 +133,7 @@ class EvonLegalEngine:
                       '{"legal_audit_summary": str, "form_a_clauses": [5 short strings]}. '
                       "Use ONLY the figures provided; never recompute money."},
                      {"role": "user", "content": json.dumps({"slots": s.model_dump(), "calc": calc})}],
-                    thinking=True, timeout=60.0)
+                    thinking=enable_thinking, timeout=60.0)
                 trace = msg.get("reasoning_content", "")
                 drafted = _extract_json(msg["content"])
                 result.update({k: drafted[k] for k in ("legal_audit_summary", "form_a_clauses") if k in drafted})
@@ -140,4 +141,4 @@ class EvonLegalEngine:
                 result["draft_warning"] = f"LLM drafting failed: {error}"
         else:
             result["form_a_clauses"] = [f"Clause {i}: verified worker statement." for i in range(1, 6)]
-        return {"thinking_trace": trace, "result": result}
+        return {"thinking_trace": trace, "enable_thinking": enable_thinking, "result": result}

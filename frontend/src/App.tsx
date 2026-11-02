@@ -10,18 +10,7 @@ import {
   LANGUAGE_OPTIONS,
   type SupportedLanguage,
 } from './language'
-
-const FIELD_KEYS = [
-  'worker_name',
-  'worksite_locality_and_sphere',
-  'contractor_name_and_phone',
-  'principal_employer_name',
-  'wage_period_start',
-  'wage_period_end',
-  'days_worked',
-  'agreed_daily_wage_inr',
-  'advance_received_inr',
-]
+import { FIELD_KEYS, isSlotVerified } from './claimSlots'
 
 const EMPTY_WAVEFORM = Array.from({ length: 28 }, () => 0.035)
 const ICON: Record<string, string> = { pass: '✓', fail: '×', warn: '!', unknown: '–' }
@@ -87,7 +76,7 @@ export default function App() {
     })
   }, [s.timbreAudioUrl, voice, copy.audioReady])
 
-  const done = FIELD_KEYS.filter((key) => s.slots[key] !== null && s.slots[key] !== undefined).length
+  const done = FIELD_KEYS.filter((key) => isSlotVerified(s.slots[key])).length
   const question = s.followup || (done === 0 ? copy.welcome : copy.thankYou)
   const waveform = s.telemetry?.source === 'mock' ? s.signalLevels : mic.levels
   const levels = waveform.length ? waveform : EMPTY_WAVEFORM
@@ -260,12 +249,12 @@ export default function App() {
           <ul className="slot-ledger">
             {FIELD_KEYS.map((key, index) => {
               const value = s.slots[key]
-              const filled = value !== null && value !== undefined
+              const verified = isSlotVerified(value)
               return (
-                <li key={key} className={filled ? 'is-filled' : ''}>
-                  <span className="slot-check" aria-hidden>{filled ? '✓' : '·'}</span>
+                <li key={key} className={verified ? 'is-verified' : 'is-missing'}>
+                  <span className="slot-check" role="img" aria-label={verified ? 'Verified' : 'Missing'}>{verified ? '✓' : '·'}</span>
                   <span className="slot-name"><b lang={displayLanguage}>{fields[index][0]}</b><small>{fields[index][1]}</small></span>
-                  <span className="slot-value">{filled ? String(value) : copy.notProvided}</span>
+                  <span className="slot-value">{verified ? String(value) : copy.notProvided}</span>
                 </li>
               )
             })}
@@ -282,6 +271,18 @@ export default function App() {
                 ))}
               </ul>
             </div>
+          )}
+          {s.reasoning && (
+            <details className="evon-reasoning">
+              <summary>
+                <span>Evon reasoning</span>
+                <span className="evon-reasoning-meta">
+                  <span className="evon-stage-badge">Stage {s.reasoning.stage}</span>
+                  <code>enable_thinking: {String(s.reasoning.enableThinking)}</code>
+                </span>
+              </summary>
+              <pre>{s.reasoning.thinkingTrace || 'No reasoning trace was returned for this Stage B run.'}</pre>
+            </details>
           )}
         </article>
 

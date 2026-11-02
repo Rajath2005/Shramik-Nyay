@@ -336,7 +336,13 @@ class Session:
         out = await self.engine.stage_b_statutory_audit_and_draft(self.slots, target_language)
         await self.send_pipeline_latency("evon_stage_b", started_at)
         self.audit = out["result"]
-        await self.send({"type": "evon_stage_b_complete", "thinking_trace": out["thinking_trace"], **self.audit})
+        await self.send({
+            "type": "evon_stage_b_complete",
+            "stage": "B",
+            "thinking_trace": out["thinking_trace"],
+            "enable_thinking": out["enable_thinking"],
+            **self.audit,
+        })
         script = self.audit["timbre_v3_readback_script"]
         await self.send({"type": "timbre_audio", "script": script})
         if self.mode == "LIVE":

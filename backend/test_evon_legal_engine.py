@@ -124,6 +124,7 @@ class EvonLegalEngineTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(output["result"]["principal_arrears_inr"], 10600)
         self.assertEqual(output["result"]["legal_audit_summary"], "Draft summary")
         self.assertEqual(output["thinking_trace"], "offline test trace")
+        self.assertIs(output["enable_thinking"], True)
         self.assertEqual(call, {"thinking": True, "timeout": 60.0})
 
 

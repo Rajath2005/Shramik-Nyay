@@ -313,7 +313,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
   border-bottom: 1px solid var(--line);
 }
 .slot-check { color: var(--amber); font-size: 16px; font-weight: 700; }
-.slot-ledger li.is-filled .slot-check { color: var(--green); }
+.slot-ledger li.is-verified .slot-check { color: var(--green); }
 .slot-name b, .slot-name small { display: block; }
 .slot-name b { font-size: 11px; font-weight: 600; }
 .slot-name small { color: var(--mute); font-size: 9px; }
@@ -324,7 +324,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.is-filled .slot-value { color: var(--ink); font-weight: 700; }
+.is-verified .slot-value { color: var(--ink); font-weight: 700; }
 .audit-block { margin-top: 13px; }
 .audit-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px 12px; margin-top: 7px; }
 .audit-list li { display: grid; grid-template-columns: 17px minmax(0, 1fr); gap: 5px; font-size: 10px; }
@@ -335,6 +335,48 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .audit-pass > span:first-child { color: var(--green); }
 .audit-fail > span:first-child { color: var(--red); }
 .audit-warn > span:first-child { color: var(--amber); }
+
+.evon-reasoning {
+  margin-top: 13px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--mute);
+  background: var(--surface);
+  font-size: 12px;
+}
+.evon-reasoning summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 9px 10px;
+  color: var(--ink);
+  cursor: pointer;
+  font-weight: 700;
+}
+.evon-reasoning-meta { display: flex; align-items: center; gap: 8px; }
+.evon-stage-badge {
+  padding: 2px 7px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  color: var(--blue);
+  background: var(--panel);
+  font-size: 10px;
+}
+.evon-reasoning code { color: var(--mute); font-size: 10px; font-weight: 400; }
+.evon-reasoning pre {
+  max-height: 340px;
+  margin: 0 10px 10px;
+  padding: 10px;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  color: var(--ink);
+  background: var(--panel);
+  font: inherit;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
 
 .paper-preview {
   padding: 15px 17px;
@@ -383,6 +425,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
   .studio-grid { grid-template-columns: 1fr; }
   .pipeline-latencies { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .slot-ledger { grid-template-columns: 1fr; }
+  .evon-reasoning summary { align-items: flex-start; flex-direction: column; }
   .telemetry-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
