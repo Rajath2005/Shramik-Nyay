@@ -15,6 +15,4 @@
    - Use `"model": "timbre-v3.0"` and `"voice": "Shivani"`.
    - Expand all numbers and currency into spoken words before synthesis, and use inline tags `<pauses>` and `<slow>`. Tags apply through the next tag or end of text; do not use HTML-style closing tags.
 
-4. **UI & Theme Constraints:**
-   - Strictly consistent dark/light theme implementation (high-contrast slate/obsidian dark telemetry console with amber, emerald, and blue status accents; never use pink accents).
-   - Keep code modular so components can be integrated cleanly.
+

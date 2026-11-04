@@ -53,6 +53,15 @@ The script loads `.env` from the backend directory, creates
 `backend/fixtures/live_tts_8khz.wav`, and sends that synthesized audio to Prisma
 in 1024-byte frames paced at 64 ms. It does not retry failed API requests.
 
+## Deterministic recorded-call replay
+
+The UI's **Replay recorded call** action is separate from this diagnostic. It
+streams the committed `backend/fixtures/replay_recorded_call.pcm` fixture
+through the same LIVE Prisma pacer, so it still exercises the provider path
+without synthesizing audio or consuming a Timbre request at replay time. The
+fixture is synthetic: its speech was generated once with Timbre v3.0 and mixed
+with deterministic procedural site noise; it is not a real worker recording.
+
 ## Results
 
 No live request was made for this documentation change. Fill in the result and
