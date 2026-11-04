@@ -1,0 +1,18 @@
+.chip {
+  display: inline-flex;
+  min-height: 36px;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-control);
+  color: var(--mute);
+  font-size: 13px;
+  white-space: nowrap;
+}
+.chip > span { width: 8px; height: 8px; border: 1px solid currentColor; border-radius: 50%; }
+.connected > span { border-color: var(--emerald); background: var(--emerald); }
+
+@media (max-width: 780px) {
+  .chip { display: none; }
+}

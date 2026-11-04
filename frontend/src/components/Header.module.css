@@ -1,0 +1,51 @@
+.header {
+  display: grid;
+  min-height: 64px;
+  grid-template-columns: minmax(180px, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  gap: 20px;
+  padding: 8px 32px;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface);
+}
+.studio { min-height: 60px; flex: 0 0 60px; padding-inline: 22px; }
+.studio .mark { width: 34px; height: 34px; }
+.brand { display: inline-flex; width: fit-content; align-items: center; gap: 10px; color: var(--ink); }
+.mark { display: grid; width: 36px; height: 36px; place-items: center; border: 1px solid var(--line); border-radius: var(--radius-control); color: var(--blue); font-size: 15px; font-weight: 700; }
+.name { font-size: 16px; font-weight: 700; }
+.controls { display: flex; align-items: center; justify-content: flex-end; gap: 10px; }
+.controls select, .themeToggle {
+  min-height: 46px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-control);
+  color: var(--ink);
+  background: var(--raised);
+}
+.controls select { max-width: 150px; padding: 5px 28px 5px 10px; }
+.themeToggle { padding: 5px 12px; }
+.creditCounter {
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-control);
+  color: var(--ink-muted);
+  background: var(--raised);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+@media (max-width: 780px) {
+  .header { grid-template-columns: 1fr auto; gap: 12px; padding: 10px 16px; }
+  .header > :nth-child(2) { grid-column: 1; grid-row: 2; justify-self: start; }
+  .controls { grid-column: 2; grid-row: 1 / span 2; flex-wrap: wrap; }
+}
+
+@media (max-width: 420px) {
+  .header { grid-template-columns: 1fr; gap: 10px; }
+  .brand { grid-row: 1; }
+  .header > :nth-child(2) { grid-column: 1; grid-row: 2; }
+  .controls { display: grid; grid-column: 1; grid-row: 3; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; }
+  .controls > :first-child { grid-column: 1; }
+  .controls > :nth-child(2) { grid-column: 2; }
+  .controls select { width: 100%; max-width: none; }
+  .themeToggle { max-width: 148px; }
+}

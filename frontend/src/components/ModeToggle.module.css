@@ -1,0 +1,13 @@
+.toggle { display: flex; padding: 3px; border: 1px solid var(--line); border-radius: var(--radius-control); }
+.toggle button {
+  min-width: 84px;
+  min-height: 46px;
+  padding: 7px 12px;
+  border: 0;
+  border-radius: 2px;
+  color: var(--ink);
+  background: transparent;
+  font-size: 14px;
+  font-weight: 700;
+}
+.toggle button[aria-pressed='true'] { color: var(--surface); background: var(--ink); }

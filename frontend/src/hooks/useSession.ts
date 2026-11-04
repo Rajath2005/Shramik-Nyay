@@ -8,6 +8,7 @@ export type EvonReasoning = {
   enableThinking: boolean
   thinkingTrace: string
 }
+export type ConsentState = 'not_requested' | 'awaiting' | 'yes' | 'no' | 'unrecognized'
 export type Audit = {
   principal_arrears_inr: number
   gross_wages_inr: number
@@ -32,6 +33,8 @@ export type PipelineLatencyStage =
   | 'evon_stage_a'
   | 'evon_stage_b'
   | 'timbre_first_audio_chunk'
+export type ConnectionState = 'connecting' | 'connected' | 'reconnecting'
+export type LiveUsage = Record<'evon' | 'timbre' | 'prisma', { used: number; limit: number }>
 
 const WS_URL: string = import.meta.env.VITE_WS_URL ?? 'ws://127.0.0.1:8000/ws/session'
 export const API_BASE = WS_URL.replace(/^ws/, 'http').replace(/\/ws\/session$/, '')
@@ -44,6 +47,7 @@ function numberField(event: Ev, key: string): number | undefined {
 export function useSession() {
   const ws = useRef<WebSocket | null>(null)
   const [online, setOnline] = useState(false)
+  const [connectionState, setConnectionState] = useState<ConnectionState>('connecting')
   const [mode, setMode] = useState('')
   const [slots, setSlots] = useState<Slots>({})
   const [followup, setFollowup] = useState('')
@@ -70,7 +74,11 @@ export function useSession() {
   const [jsonUrl, setJsonUrl] = useState<string | null>(null)
   const [timbreAudioUrl, setTimbreAudioUrl] = useState<string | null>(null)
   const [timbreUnavailable, setTimbreUnavailable] = useState(false)
+  const [consentState, setConsentState] = useState<ConsentState>('not_requested')
+  const [voiceConsentRecorded, setVoiceConsentRecorded] = useState(false)
   const [message, setMessage] = useState('')
+  const [liveUsage, setLiveUsage] = useState<LiveUsage | null>(null)
+  const [replayActive, setReplayActive] = useState(false)
 
   useEffect(() => {
     let closed = false
@@ -86,6 +94,23 @@ export function useSession() {
           setBiasSettingsUpdated(false); setBiasBoostFailed(false); setPipelineLatencies({})
           biasRequestRef.current = null; confirmedBiasRequestRef.current = null
           setTimbreAudioUrl(null); setTimbreUnavailable(false)
+          setConsentState('not_requested'); setVoiceConsentRecorded(false)
+          setLiveUsage(null)
+          setReplayActive(false)
+          break
+        case 'credit_usage':
+          if (e.usage && typeof e.usage === 'object') {
+            const usage = e.usage as Record<string, unknown>
+            const providers = ['evon', 'timbre', 'prisma'] as const
+            if (providers.every((provider) => {
+              const value = usage[provider]
+              return value && typeof value === 'object'
+                && typeof (value as { used?: unknown }).used === 'number'
+                && typeof (value as { limit?: unknown }).limit === 'number'
+            })) {
+              setLiveUsage(usage as LiveUsage)
+            }
+          }
           break
         case 'evon_stage_a':
           setSlots(e.slots as Slots); setFollowup(String(e.followup ?? ''))
@@ -142,6 +167,12 @@ export function useSession() {
           if (latencyMs !== undefined) setLatency(latencyMs)
           break
         }
+        case 'replay_started':
+          setReplayActive(true)
+          break
+        case 'replay_finished':
+          setReplayActive(false)
+          break
         case 'pipeline_latency': {
           const stages: PipelineLatencyStage[] = [
             'prisma_segment', 'evon_stage_a', 'evon_stage_b', 'timbre_first_audio_chunk',
@@ -201,6 +232,15 @@ export function useSession() {
           setTimbreUnavailable(true)
           setMessage(`Timbre read-back unavailable: ${String(e.message ?? 'No audio was returned.')}`)
           break
+        case 'consent_status':
+          if (
+            e.state === 'not_requested' || e.state === 'awaiting' || e.state === 'yes'
+            || e.state === 'no' || e.state === 'unrecognized'
+          ) {
+            setConsentState(e.state)
+            setVoiceConsentRecorded(e.state === 'yes' && e.voice_consent_recorded === true)
+          }
+          break
         case 'claim_ready':
           setPdfUrl(API_BASE + String(e.pdf_url))
           setJsonUrl(API_BASE + String(e.json_url))
@@ -219,9 +259,16 @@ export function useSession() {
       ws.current = sock
       sock.onopen = () => {
         setOnline(true)
+        setConnectionState('connected')
         sock.send(JSON.stringify({ type: 'set_language', language: languagePreferenceRef.current }))
       }
-      sock.onclose = () => { setOnline(false); if (!closed) window.setTimeout(open, 1500) }
+      sock.onclose = () => {
+        setOnline(false)
+        if (!closed) {
+          setConnectionState('reconnecting')
+          window.setTimeout(open, 1500)
+        }
+      }
       sock.onmessage = (m) => {
         if (typeof m.data === 'string') {
           handle(JSON.parse(m.data))
@@ -258,10 +305,10 @@ export function useSession() {
   }, [])
 
   return {
-    online, mode, slots, followup, audit, reasoning, pdfUrl, jsonUrl, heard, events, biasWords,
+    online, connectionState, mode, slots, followup, audit, reasoning, pdfUrl, jsonUrl, heard, events, biasWords,
     biasSettingsUpdated, biasBoostFailed, pipelineLatencies,
     latency, signalLevels, telemetry, transcript, detectedLanguage, effectiveLanguage,
     languagePreference, setLanguagePreference, readback, timbreAudioUrl,
-    timbreUnavailable, message, send, sendAudio,
+    timbreUnavailable, consentState, voiceConsentRecorded, message, liveUsage, replayActive, send, sendAudio,
   }
 }

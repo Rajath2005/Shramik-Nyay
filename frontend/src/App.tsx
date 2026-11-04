@@ -1,47 +1,54 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import './App.css'
+import styles from './App.module.css'
+import AudioLine, { MicIcon } from './components/AudioLine'
+import ClaimSlots from './components/ClaimSlots'
+import ConsentBar from './components/ConsentBar'
+import Header from './components/Header'
+import PaperForm from './components/PaperForm'
+import Transcript from './components/Transcript'
 import { useMicrophone } from './hooks/useMicrophone'
+import { useCountUp } from './hooks/useCountUp'
 import { useSession } from './hooks/useSession'
 import {
   COPY,
   FIELD_LABELS,
-  isLanguagePreference,
+  FIELD_QUESTIONS,
   LANGUAGE_LABELS,
-  LANGUAGE_OPTIONS,
   type SupportedLanguage,
 } from './language'
 import { FIELD_KEYS, isSlotVerified } from './claimSlots'
+import type { ViewMode } from './components/types'
 
-const EMPTY_WAVEFORM = Array.from({ length: 28 }, () => 0.035)
-const ICON: Record<string, string> = { pass: '✓', fail: '×', warn: '!', unknown: '–' }
-const inr = (n: number) => `₹${n.toLocaleString('en-IN')}`
-const plain = (s: string) => s.replace(/<[^>]+>/g, ' ')
+const EMPTY_WAVEFORM = Array.from({ length: 28 }, () => 0)
+const plain = (text: string) => text.replace(/<[^>]+>/g, ' ')
 
-function speak(text: string, language: string) {
+function speak(text: string, language: string, onSpeakingChange?: (speaking: boolean) => void) {
   if (!text || !('speechSynthesis' in window)) return
   window.speechSynthesis.cancel()
   const utterance = new SpeechSynthesisUtterance(plain(text))
   utterance.lang = language
+  utterance.onstart = () => onSpeakingChange?.(true)
+  utterance.onend = () => onSpeakingChange?.(false)
+  utterance.onerror = () => onSpeakingChange?.(false)
   window.speechSynthesis.speak(utterance)
 }
 
-function PanelHeading({ title, detail }: { title: string; detail?: string }) {
-  return (
-    <div className="panel-heading">
-      <h2>{title}</h2>
-      {detail && <span>{detail}</span>}
-    </div>
-  )
-}
-
 export default function App() {
-  const s = useSession()
-  const { send, sendAudio } = s
-  const [engineer, setEngineer] = useState(false)
-  const [dark, setDark] = useState(() => window.matchMedia('(prefers-color-scheme: dark)').matches)
-  const [voice, setVoice] = useState(true)
-  const [noiseLevel, setNoiseLevel] = useState(0)
+  const session = useSession()
+  const { send, sendAudio } = session
+  const [mode, setMode] = useState<ViewMode>(() =>
+    localStorage.getItem('shramik:view-mode') === 'studio' ? 'studio' : 'worker',
+  )
+  const [dark, setDark] = useState(() => {
+    const preference = localStorage.getItem('shramik:theme')
+    return preference === 'dark' || (preference !== 'light' && window.matchMedia('(prefers-color-scheme: dark)').matches)
+  })
+  const [readAloud, setReadAloud] = useState(true)
   const [typed, setTyped] = useState('')
+  const [showTyping, setShowTyping] = useState(false)
+  const [workerPhase, setWorkerPhase] = useState<'idle' | 'thinking' | 'speaking'>('idle')
+  const [noiseLevel, setNoiseLevel] = useState(0)
   const [uan, setUan] = useState('')
   const [audioNotice, setAudioNotice] = useState('')
   const readbackAudio = useRef<HTMLAudioElement>(null)
@@ -51,299 +58,413 @@ export default function App() {
     onStop: useCallback(() => send({ type: 'stop_mic' }), [send]),
   })
 
-  const displayLanguage: SupportedLanguage =
-    s.effectiveLanguage === 'kn-IN' || s.effectiveLanguage === 'en-IN' || s.effectiveLanguage === 'hi-IN'
-      ? s.effectiveLanguage
-      : s.languagePreference === 'auto' ? 'hi-IN' : s.languagePreference
+  const displayLanguage: SupportedLanguage = session.languagePreference !== 'auto'
+    ? session.languagePreference
+    : session.effectiveLanguage === 'kn-IN' || session.effectiveLanguage === 'en-IN' || session.effectiveLanguage === 'hi-IN'
+      ? session.effectiveLanguage
+      : 'hi-IN'
   const transcriptLanguage: SupportedLanguage =
-    s.detectedLanguage === 'kn-IN' || s.detectedLanguage === 'en-IN' || s.detectedLanguage === 'hi-IN'
-      ? s.detectedLanguage
+    session.detectedLanguage === 'kn-IN' || session.detectedLanguage === 'en-IN' || session.detectedLanguage === 'hi-IN'
+      ? session.detectedLanguage
       : displayLanguage
   const copy = COPY[displayLanguage]
   const fields = FIELD_LABELS[displayLanguage]
+  const done = FIELD_KEYS.filter((key) => isSlotVerified(session.slots[key])).length
+  const firstMissing = FIELD_KEYS.findIndex((key) => !isSlotVerified(session.slots[key]))
+  const question = session.consentState === 'awaiting'
+    ? copy.consentQuestion
+    : session.consentState === 'no'
+      ? copy.consentNo
+      : session.consentState === 'unrecognized'
+        ? copy.consentUnrecognized
+        : session.followup || (done === 0
+          ? copy.initialQuestion
+          : firstMissing >= 0
+            ? FIELD_QUESTIONS[displayLanguage][firstMissing]
+            : copy.allDetailsCollected)
+  const currentQuestion = question || copy.initialQuestion
+  const sample = session.mode === 'MOCK_REPLAY'
+  const waveform = sample
+    ? session.signalLevels
+    : mic.live ? mic.levels : EMPTY_WAVEFORM
+  const canUseMicrophone = session.online && session.mode === 'LIVE'
+  const detectedLanguageLabel =
+    session.detectedLanguage === 'kn-IN' || session.detectedLanguage === 'en-IN' || session.detectedLanguage === 'hi-IN'
+      ? LANGUAGE_LABELS[session.detectedLanguage]
+      : ''
+  const arrearsDisplayValue = useCountUp(session.audit?.principal_arrears_inr ?? null)
+  const lastEvent = session.events[session.events.length - 1]
+  const uanMessage = lastEvent?.type === 'uan_result' ? session.message : ''
+  const serviceMessage = lastEvent?.type === 'error'
+    ? session.message || copy.apiError
+    : lastEvent?.type === 'uan_result' || lastEvent?.type === 'timbre_audio_unavailable'
+      ? ''
+      : session.message
+  const timbreNotice = session.timbreUnavailable ? copy.timbreUnavailable : ''
 
-  useEffect(() => { document.documentElement.dataset.theme = dark ? 'dark' : 'light' }, [dark])
-  useEffect(() => { if (voice) speak(s.followup, displayLanguage) }, [s.followup, voice, displayLanguage])
   useEffect(() => {
-    if (voice && s.audit && (s.mode !== 'LIVE' || s.timbreUnavailable)) {
-      speak(s.audit.timbre_v3_readback_script, displayLanguage)
+    document.documentElement.dataset.theme = dark ? 'dark' : 'light'
+    document.documentElement.lang = displayLanguage
+    localStorage.setItem('shramik:theme', dark ? 'dark' : 'light')
+  }, [dark, displayLanguage])
+
+  useEffect(() => {
+    localStorage.setItem('shramik:view-mode', mode)
+  }, [mode])
+
+  useEffect(() => {
+    if (readAloud) {
+      speak(currentQuestion, displayLanguage, (speaking) => {
+        setWorkerPhase((phase) => speaking ? 'speaking' : phase === 'speaking' ? 'idle' : phase)
+      })
     }
-  }, [s.audit, s.mode, s.timbreUnavailable, voice, displayLanguage])
+    return () => {
+      if ('speechSynthesis' in window) window.speechSynthesis.cancel()
+    }
+  }, [currentQuestion, readAloud, displayLanguage])
+
   useEffect(() => {
-    if (!voice || !s.timbreAudioUrl || !readbackAudio.current) return
+    if (mode !== 'studio' || !readAloud || !session.timbreAudioUrl || !readbackAudio.current) return
     void readbackAudio.current.play().then(() => setAudioNotice('')).catch(() => {
       setAudioNotice(copy.audioReady)
     })
-  }, [s.timbreAudioUrl, voice, copy.audioReady])
+  }, [mode, session.timbreAudioUrl, readAloud, copy.audioReady])
 
-  const done = FIELD_KEYS.filter((key) => isSlotVerified(s.slots[key])).length
-  const question = s.followup || (done === 0 ? copy.welcome : copy.thankYou)
-  const waveform = s.telemetry?.source === 'mock' ? s.signalLevels : mic.levels
-  const levels = waveform.length ? waveform : EMPTY_WAVEFORM
-  const noiseFloor = noiseLevel / 100 * 0.1
+  useEffect(() => {
+    if (mode === 'studio' && readAloud && session.audit && (session.mode !== 'LIVE' || session.timbreUnavailable)) {
+      speak(session.audit.timbre_v3_readback_script, displayLanguage)
+    }
+  }, [mode, session.audit, session.mode, session.timbreUnavailable, readAloud, displayLanguage])
+
+  useEffect(() => {
+    const latest = session.events[session.events.length - 1]
+    if (
+      latest?.type === 'session_started'
+      || latest?.type === 'prisma_transcript'
+      || latest?.type === 'evon_stage_a'
+      || latest?.type === 'consent_status'
+      || latest?.type === 'notice'
+      || latest?.type === 'error'
+    ) {
+      const frame = window.requestAnimationFrame(() => {
+        setWorkerPhase((phase) => phase === 'thinking' ? 'idle' : phase)
+      })
+      return () => window.cancelAnimationFrame(frame)
+    }
+  }, [session.events])
+
+  const submitAnswer = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    if (!typed.trim()) return
+    setWorkerPhase('thinking')
+    send({ type: 'utterance', text: typed.trim() })
+    setTyped('')
+  }
+  const toggleMicrophone = () => {
+    if (mic.live) {
+      setWorkerPhase('thinking')
+      mic.stop()
+    }
+    else void mic.start(noiseLevel)
+  }
+  const changeNoiseLevel = (value: number) => {
+    setNoiseLevel(value)
+    mic.updateNoiseLevel(value)
+  }
+  const prepareDraft = () => send({ type: 'confirm' })
+  const playSample = () => {
+    setWorkerPhase('thinking')
+    send({ type: 'demo' })
+  }
+  const answerConsent = (accepted: boolean) => {
+    setWorkerPhase('thinking')
+    const answers: Record<SupportedLanguage, { yes: string; no: string }> = {
+      'hi-IN': { yes: 'हाँ', no: 'ना' },
+      'kn-IN': { yes: 'ಹೌದು', no: 'ಇಲ್ಲ' },
+      'en-IN': { yes: 'Yes', no: 'No' },
+    }
+    send({ type: 'utterance', text: accepted ? answers[displayLanguage].yes : answers[displayLanguage].no })
+  }
+
+  if (mode === 'studio') {
+    return (
+      <main className={`${styles.app} ${styles.studioApp}`}>
+        <div className={styles.studioUnsupported}>
+          <strong>{copy.studioViewportTitle}</strong>
+          <span>{copy.studioViewportHint}</span>
+          <button type="button" onClick={() => setMode('worker')}>{copy.switchToWorker}</button>
+        </div>
+        <div className={styles.studioCanvas}>
+          <Header
+            mode={mode}
+            onModeChange={setMode}
+            dark={dark}
+            onThemeChange={() => setDark((value) => !value)}
+            language={session.languagePreference}
+            onLanguageChange={session.setLanguagePreference}
+            online={session.online}
+            connectionState={session.connectionState}
+            serviceMode={session.mode}
+            copy={copy}
+            studio
+            liveUsage={session.liveUsage}
+          />
+          <section className={styles.studioGrid} aria-label={copy.studioMode}>
+            <AudioLine
+              className={styles.audioZone}
+              copy={copy}
+              theme={dark ? 'dark' : 'light'}
+              levels={waveform}
+              micLive={mic.live}
+              micError={mic.error}
+              sample={sample}
+              online={session.online}
+              serviceMode={session.mode}
+              telemetry={session.telemetry}
+              latency={session.latency}
+              pipelineLatencies={session.pipelineLatencies}
+              biasWords={session.biasWords}
+              biasSettingsUpdated={session.biasSettingsUpdated}
+              biasBoostFailed={session.biasBoostFailed}
+              noiseLevel={noiseLevel}
+              onNoiseLevelChange={changeNoiseLevel}
+              onToggleMicrophone={toggleMicrophone}
+              onPlaySample={playSample}
+              onReplayRecordedCall={() => send({ type: 'replay_recorded_call' })}
+              replayActive={session.replayActive}
+            />
+            <ClaimSlots
+              className={styles.slotsZone}
+              copy={copy}
+              fields={fields}
+              slots={session.slots}
+              done={done}
+              firstMissing={firstMissing}
+              audit={session.audit}
+              reasoning={session.reasoning}
+              sample={sample}
+              uan={uan}
+              onUanChange={setUan}
+              onSubmitUan={() => {
+                if (uan.trim()) send({ type: 'uan', value: uan.trim() })
+              }}
+              online={session.online}
+              uanMessage={uanMessage}
+            />
+            <Transcript
+              className={styles.transcriptZone}
+              copy={copy}
+              language={transcriptLanguage}
+              detectedLanguage={detectedLanguageLabel}
+              latency={session.latency}
+              transcript={session.transcript}
+              boostedWords={session.biasWords}
+              sample={sample}
+              typedAnswer={typed}
+              onTypedAnswerChange={setTyped}
+              onSubmitAnswer={() => {
+                if (typed.trim()) {
+                  send({ type: 'utterance', text: typed.trim() })
+                  setTyped('')
+                }
+              }}
+              online={session.online}
+            />
+            <article className={styles.paperZone} aria-labelledby="paper-heading">
+              <div className={styles.paperHeading}>
+                <h2 id="paper-heading">{copy.formDraft}</h2>
+                <span>{session.pdfUrl ? copy.filesReady : copy.draftOnly}</span>
+              </div>
+              <PaperForm
+                copy={copy}
+                fields={fields}
+                slots={session.slots}
+                audit={session.audit}
+                sample={sample}
+                arrearsDisplayValue={arrearsDisplayValue}
+              />
+              {session.audit && (
+                <ConsentBar
+                  copy={copy}
+                  state={session.consentState}
+                  voiceConsentRecorded={session.voiceConsentRecorded}
+                  readback={session.readback}
+                  language={displayLanguage}
+                  audioUrl={session.timbreAudioUrl}
+                  audioRef={readbackAudio}
+                  audioNotice={audioNotice}
+                  pdfUrl={session.pdfUrl}
+                  jsonUrl={session.jsonUrl}
+                  onPrepare={prepareDraft}
+                />
+              )}
+              {timbreNotice && <p className={styles.paperError} role="status">{timbreNotice}</p>}
+              {serviceMessage && <p className={styles.paperError} role="alert">{serviceMessage}</p>}
+            </article>
+          </section>
+        </div>
+      </main>
+    )
+  }
 
   return (
-    <main className="app">
-      <header className="topbar">
-        <div className="brand" aria-label="Shramik-Nyay">
-          <span className="brand-mark" aria-hidden>श्रम</span>
-          <span><strong>श्रमिक-न्याय</strong><small>{copy.studio}</small></span>
-        </div>
-        <div className="top-actions">
-          <span className={`connection ${s.online ? 'connected' : ''}`}>
-            <i aria-hidden />{s.online ? `Connected · ${s.mode}` : 'Connecting'}
-          </span>
-          <button className="quiet-button" onClick={() => setVoice(!voice)} aria-pressed={voice}>
-            {copy.readAloud} {voice ? copy.on : copy.off}
-          </button>
-          <button className="quiet-button" onClick={() => setDark(!dark)}>
-            {dark ? copy.lightTheme : copy.darkTheme}
-          </button>
-          <button className="quiet-button" onClick={() => setEngineer(!engineer)} aria-pressed={engineer}>
-            {copy.engineer}
-          </button>
-        </div>
-      </header>
-
-      <section className="intake" aria-label="Claim conversation">
-        <div className="intake-prompt">
-          <p className="eyebrow">{copy.eyebrow}</p>
-          <h1 lang={displayLanguage}>{question}</h1>
-          <p className="intake-progress">{done}/{FIELD_KEYS.length} {copy.progress}</p>
-        </div>
-        <div className="intake-actions">
-          <div className="language-control">
-            <label htmlFor="language-choice">{copy.language}</label>
-            <select
-              id="language-choice"
-              value={s.languagePreference}
-              disabled={mic.live}
-              onChange={(event) => {
-                if (isLanguagePreference(event.target.value)) s.setLanguagePreference(event.target.value)
-              }}
-            >
-              {LANGUAGE_OPTIONS.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.value === 'auto' ? copy.autoDetect : option.label}
-                </option>
-              ))}
-            </select>
-            <span className="language-status">
-              {s.languagePreference === 'auto'
-                ? s.effectiveLanguage ? `${copy.autoHint} ${LANGUAGE_LABELS[displayLanguage]}` : copy.autoHint
-                : LANGUAGE_LABELS[displayLanguage]}
-            </span>
-          </div>
-          <form className="text-entry" onSubmit={(event) => {
-            event.preventDefault()
-            if (typed.trim()) {
-              s.send({ type: 'utterance', text: typed })
-              setTyped('')
-            }
-          }}>
-            <input value={typed} onChange={(event) => setTyped(event.target.value)} placeholder={copy.inputPlaceholder} aria-label={copy.inputPlaceholder} />
-            <button className="action-button" type="submit" disabled={!s.online}>{copy.send}</button>
-          </form>
-          <div className="action-row">
-            <form className="uan-entry" onSubmit={(event) => {
-              event.preventDefault()
-              s.send({ type: 'uan', value: uan })
-            }}>
-              <input value={uan} onChange={(event) => setUan(event.target.value)} inputMode="numeric" placeholder={copy.uanPlaceholder} aria-label={copy.uanPlaceholder} />
-              <button className="quiet-button" type="submit" disabled={!s.online}>{copy.check}</button>
-            </form>
-            <button className="action-button replay-button" disabled={!s.online || s.mode !== 'MOCK_REPLAY'} onClick={() => s.send({ type: 'demo' })}>
-              {s.mode === 'LIVE' ? copy.replayOff : copy.runSample}
-            </button>
-            <button
-              className={`quiet-button mic-button ${mic.live ? 'is-live' : ''}`}
-              disabled={(!s.online || s.mode !== 'LIVE') && !mic.live}
-              onClick={() => (mic.live ? mic.stop() : void mic.start(noiseLevel))}
-            >
-              {mic.live ? copy.stopSpeaking : copy.startSpeaking}
-            </button>
-          </div>
-          {s.online && s.mode !== 'LIVE' && <p className="mode-note">{copy.mockHint}</p>}
-          {mic.error && <p className="inline-error" role="alert">{mic.error}</p>}
-          {s.message && <p className="inline-error" role="status">{s.message}</p>}
-          {s.mode === 'LIVE' && (
-            <div className="noise-control">
-              <label htmlFor="noise-level">{copy.simulateNoise}</label>
-              <input
-                id="noise-level"
-                type="range"
-                min="0"
-                max="100"
-                step="1"
-                value={noiseLevel}
-                aria-valuetext={`${noiseLevel}%`}
-                onChange={(event) => {
-                  const level = Number(event.target.value)
-                  setNoiseLevel(level)
-                  mic.updateNoiseLevel(level)
-                }}
-              />
-              <output htmlFor="noise-level">{noiseLevel}%</output>
-            </div>
+    <main className={`${styles.app} ${styles.workerApp}`}>
+      <Header
+        mode={mode}
+        onModeChange={setMode}
+        dark={dark}
+        onThemeChange={() => setDark((value) => !value)}
+        language={session.languagePreference}
+        workerLanguage={displayLanguage}
+        onLanguageChange={session.setLanguagePreference}
+        online={session.online}
+        connectionState={session.connectionState}
+        serviceMode={session.mode}
+        copy={copy}
+        worker
+      />
+      <section className={styles.workerFlow} aria-label={copy.workerMode}>
+        <div className={styles.workerQuestion}>
+          {!session.online && (
+            <p className={styles.workerConnection} role="status" aria-live="polite">
+              {session.connectionState === 'reconnecting' ? copy.reconnecting : copy.connecting}
+            </p>
           )}
+          <p className={styles.workerContext}>{copy.wageClaimContext}</p>
+          <h1 lang={displayLanguage} aria-live="polite" aria-atomic="true">{currentQuestion}</h1>
+          <p className={styles.workerProgress}>{copy.progressValue(done, FIELD_KEYS.length)}</p>
+          <div
+            className={styles.progressTrack}
+            role="progressbar"
+            aria-label={copy.progressLabel}
+            aria-valuemin={0}
+            aria-valuemax={FIELD_KEYS.length}
+            aria-valuenow={done}
+          >
+            <span style={{ width: `${done / FIELD_KEYS.length * 100}%` }} />
+          </div>
         </div>
-      </section>
 
-      <section className="studio-grid" aria-label="Claim processing studio">
-        <article className="panel acoustic-panel">
-          <PanelHeading title={copy.audioLine} detail={s.telemetry?.source === 'mock' ? copy.syntheticReplay : mic.live ? copy.microphoneLive : copy.waitingSpeech} />
-          <div className="waveform" role="img" aria-label={mic.live ? 'Live microphone level with ambient noise floor' : 'Sample audio waveform'}>
-            {mic.live && noiseFloor > 0 && <span className="noise-floor" aria-hidden="true" style={{ bottom: `${8 + noiseFloor * 92}%` }} />}
-            {levels.map((level, index) => <i key={index} style={{ height: `${Math.max(7, 8 + level * 92)}%` }} />)}
+        <button
+          className={`${styles.workerMic}${mic.live ? ` ${styles.recording}` : ''}`}
+          type="button"
+          disabled={(!canUseMicrophone && !mic.live) || workerPhase === 'thinking'}
+          onClick={toggleMicrophone}
+          aria-label={mic.live ? copy.stopRecording : copy.speakAnswer}
+          data-state={mic.live ? 'listening' : workerPhase}
+        >
+          <MicIcon />
+        </button>
+        <p className={styles.workerState} role="status" aria-live="polite">
+          {mic.live
+            ? copy.workerListening
+            : workerPhase === 'thinking'
+              ? copy.workerThinking
+              : workerPhase === 'speaking'
+                ? copy.workerSpeaking
+                : copy.workerReady}
+        </p>
+        {sample && session.consentState !== 'awaiting'
+          ? <p className={styles.workerMicHint}>{copy.sampleMicHint}</p>
+          : session.consentState !== 'awaiting' && !mic.live && workerPhase === 'idle' && <p className={styles.workerMicHint}>{copy.micHint}</p>}
+        {sample && session.consentState !== 'awaiting' && (
+          <div className={styles.workerSample}>
+            <span>{copy.sampleDetails}</span>
+            <button type="button" disabled={!session.online} onClick={playSample}>{copy.playSample}</button>
           </div>
-          <div className="signal-caption"><span>8 kHz narrowband</span><span>{mic.live ? copy.inputActive : s.telemetry?.source === 'mock' ? copy.replayComplete : copy.noAudio}</span></div>
-          <div className="telemetry-grid">
-            <div><small>{copy.frameSize}</small><strong>{s.telemetry?.frameBytes ?? 1024} B</strong></div>
-            <div><small>{copy.frameCadence}</small><strong>{s.telemetry?.cadenceMs ?? 64} ms</strong></div>
-            <div><small>{copy.vadThreshold}</small><strong>{s.telemetry?.vadThreshold?.toFixed(2) ?? '0.72'}</strong></div>
-            <div><small>{copy.transcriptLatency}</small><strong>{s.latency !== null ? `${s.latency} ms` : '—'}</strong></div>
+        )}
+        {session.mode === 'LIVE' && (
+          <div className={styles.workerSample}>
+            <span>{copy.replaySyntheticHint}</span>
+            <button type="button" disabled={!session.online || session.replayActive} onClick={() => send({ type: 'replay_recorded_call' })}>
+              {session.replayActive ? copy.replayActive : copy.replayRecordedCall}
+            </button>
           </div>
-          <div className="pipeline-latencies" aria-label="Pipeline latency">
-            {([
-              ['Prisma segment', 'prisma_segment'],
-              ['Evon Stage A', 'evon_stage_a'],
-              ['Evon Stage B', 'evon_stage_b'],
-              ['Timbre first audio', 'timbre_first_audio_chunk'],
-            ] as const).map(([label, stage]) => (
-              <div key={stage}><small>{label}</small><strong>{s.pipelineLatencies[stage] ?? '—'}{s.pipelineLatencies[stage] === undefined ? '' : ' ms'}</strong></div>
-            ))}
-          </div>
-          <div className="bias-row">
-            <span className="sub-label">{copy.recognizeWords}</span>
-            <div className={`word-pills ${s.biasSettingsUpdated ? 'is-confirmed' : 'is-pending'}`}>
-              {s.biasWords.length ? s.biasWords.map((word) => <span key={word}>{word}</span>) : <span className="muted">{copy.noBoostedWords}</span>}
-              {s.biasWords.length > 0 && (
-                <span className="bias-confirmation" role="status">
-                  {s.biasSettingsUpdated
-                    ? 'settings_updated'
-                    : s.biasBoostFailed ? 'settings_update_failed' : 'awaiting settings_updated'}
-                </span>
-              )}
-            </div>
-          </div>
-        </article>
-
-        <article className="panel transcript-panel">
-          <PanelHeading
-            title={copy.workerWords}
-            detail={s.languagePreference === 'auto'
-              ? s.detectedLanguage || copy.audioWaiting
-              : LANGUAGE_LABELS[displayLanguage]}
+        )}
+        {session.audit && session.consentState === 'awaiting' && (
+          <ConsentBar
+            copy={copy}
+            state={session.consentState}
+            voiceConsentRecorded={session.voiceConsentRecorded}
+            readback={session.readback || session.audit.timbre_v3_readback_script}
+            language={displayLanguage}
+            audioUrl={session.timbreAudioUrl}
+            audioRef={readbackAudio}
+            audioNotice={audioNotice}
+            pdfUrl={session.pdfUrl}
+            jsonUrl={session.jsonUrl}
+            onPrepare={prepareDraft}
+            onConsentAnswer={session.online ? answerConsent : undefined}
+            isSpeaking={workerPhase === 'speaking'}
+            onSpeakingChange={(speaking) => setWorkerPhase((phase) => speaking ? 'speaking' : phase === 'speaking' ? 'idle' : phase)}
+            onAudioNotice={setAudioNotice}
+            worker
           />
-          {s.transcript
-            ? <p className="transcript-text" lang={transcriptLanguage}>{s.transcript}</p>
-            : <p className="empty-copy">{copy.transcriptEmpty}</p>}
-          <div className="transcript-foot">
-            <span className={`status-dot ${s.transcript ? 'is-ready' : ''}`} />
-            {s.transcript ? copy.transcriptCaptured : copy.waitingTranscript}
-          </div>
-        </article>
+        )}
+        {mic.error && <p className={styles.workerError} role="alert">{copy.microphoneError}</p>}
+        {timbreNotice && session.consentState === 'awaiting' && (
+          <p className={styles.workerNotice} role="status">{timbreNotice}</p>
+        )}
+        {serviceMessage && <p className={styles.workerError} role="alert">{serviceMessage}</p>}
 
-        <article className="panel claim-panel">
-          <PanelHeading title={copy.claimDetails} detail={`${done}/${FIELD_KEYS.length} ${copy.collected}`} />
-          <ul className="slot-ledger">
-            {FIELD_KEYS.map((key, index) => {
-              const value = s.slots[key]
-              const verified = isSlotVerified(value)
-              return (
-                <li key={key} className={verified ? 'is-verified' : 'is-missing'}>
-                  <span className="slot-check" role="img" aria-label={verified ? 'Verified' : 'Missing'}>{verified ? '✓' : '·'}</span>
-                  <span className="slot-name"><b lang={displayLanguage}>{fields[index][0]}</b><small>{fields[index][1]}</small></span>
-                  <span className="slot-value">{verified ? String(value) : copy.notProvided}</span>
-                </li>
-              )
-            })}
-          </ul>
-          {s.audit && (
-            <div className="audit-block">
-              <p className="sub-label">{copy.ruleChecks}</p>
-              <ul className="audit-list">
-                {s.audit.checks.map((check) => (
-                  <li key={check.id} className={`audit-${['pass', 'fail', 'warn'].includes(check.status) ? check.status : 'unknown'}`}>
-                    <span aria-hidden>{ICON[check.status] ?? ICON.unknown}</span>
-                    <span><b>{check.label}</b><small>{check.detail}</small></span>
-                  </li>
-                ))}
-              </ul>
-            </div>
+        {session.consentState !== 'awaiting' && <div className={styles.workerTyping}>
+          {!showTyping ? (
+            <button className={styles.textToggle} type="button" onClick={() => setShowTyping(true)}>{copy.typeInstead}</button>
+          ) : (
+            <form className={styles.workerTextEntry} onSubmit={submitAnswer}>
+              <label className="visually-hidden" htmlFor="worker-answer">{copy.typeAnswer}</label>
+              <textarea
+                id="worker-answer"
+                rows={2}
+                value={typed}
+                onChange={(event) => setTyped(event.target.value)}
+                placeholder={copy.typeAnswer}
+                autoFocus
+              />
+              <button type="submit" disabled={!session.online || !typed.trim()}>{copy.sendAnswer}</button>
+            </form>
           )}
-          {s.reasoning && (
-            <details className="evon-reasoning">
-              <summary>
-                <span>Evon reasoning</span>
-                <span className="evon-reasoning-meta">
-                  <span className="evon-stage-badge">Stage {s.reasoning.stage}</span>
-                  <code>enable_thinking: {String(s.reasoning.enableThinking)}</code>
-                </span>
-              </summary>
-              <pre>{s.reasoning.thinkingTrace || 'No reasoning trace was returned for this Stage B run.'}</pre>
-            </details>
-          )}
-        </article>
+        </div>}
 
-        <article className="panel document-panel">
-          <PanelHeading title={copy.formDraft} detail={s.pdfUrl ? copy.readyDownload : copy.notFiled} />
-          <div className="paper-preview">
-            <div className="paper-heading">
-              <span>SHRAMIK-NYAY</span>
-              <small>WAGE CLAIM · DRAFT</small>
-            </div>
-            <p className="paper-intro">{copy.claimTitle}</p>
-            <div className="paper-person">
-              <small>{copy.worker}</small>
-              <strong>{String(s.slots.worker_name ?? copy.awaitingWorker)}</strong>
-              <span>{String(s.slots.worksite_locality_and_sphere ?? copy.worksiteMissing)}</span>
-            </div>
-            <div className="paper-amount">
-              <small>{copy.estimatedArrears}</small>
-              <strong>{s.audit ? inr(s.audit.principal_arrears_inr) : '—'}</strong>
-            </div>
-            <p className="paper-employer">{String(s.slots.principal_employer_name ?? copy.employerMissing)}</p>
-            {s.audit?.legal_audit_summary && <p className="paper-summary">{s.audit.legal_audit_summary}</p>}
-          </div>
-          {s.readback && (
-            <details className="readback">
-              <summary>{copy.readback}</summary>
-              <p lang={displayLanguage}>{plain(s.readback)}</p>
-            </details>
-          )}
-          {s.timbreAudioUrl && (
-            <div className="audio-readback">
-              <span className="sub-label">{copy.timbreReadback}</span>
-              <audio ref={readbackAudio} controls src={s.timbreAudioUrl}>{copy.audioUnsupported}</audio>
-            </div>
-          )}
-          {audioNotice && <p className="legal-notice" role="status">{audioNotice}</p>}
-          {s.audit?.notice && <p className="legal-notice">{s.audit.notice}</p>}
-          <div className="document-actions">
-            {s.pdfUrl && s.jsonUrl ? (
-              <>
-                <a className="action-button" href={s.pdfUrl} download>{copy.downloadPdf}</a>
-                <a className="quiet-button" href={s.jsonUrl} download>{copy.downloadJson}</a>
-              </>
-            ) : (
-              <button className="action-button" disabled={!s.audit} onClick={() => s.send({ type: 'confirm' })}>
-                {copy.prepareDraft}
-              </button>
-            )}
-          </div>
-          <p className="draft-only-note">{copy.draftOnly}</p>
-        </article>
+        {session.consentState !== 'awaiting' && <details className={styles.workerPaperPreview}>
+          <summary>{copy.paperPreview}</summary>
+          <PaperForm
+            copy={copy}
+            fields={fields}
+            slots={session.slots}
+            audit={session.audit}
+            sample={sample}
+            compact
+            arrearsDisplayValue={arrearsDisplayValue}
+          />
+        </details>}
+        {session.audit && session.consentState !== 'awaiting' && (
+          <ConsentBar
+            copy={copy}
+            state={session.consentState}
+            voiceConsentRecorded={session.voiceConsentRecorded}
+            readback={session.readback || session.audit.timbre_v3_readback_script}
+            language={displayLanguage}
+            audioUrl={session.timbreAudioUrl}
+            audioRef={readbackAudio}
+            audioNotice={audioNotice}
+            pdfUrl={session.pdfUrl}
+            jsonUrl={session.jsonUrl}
+            onPrepare={prepareDraft}
+            onConsentAnswer={session.online ? answerConsent : undefined}
+            isSpeaking={workerPhase === 'speaking'}
+            onSpeakingChange={(speaking) => setWorkerPhase((phase) => speaking ? 'speaking' : phase === 'speaking' ? 'idle' : phase)}
+            onAudioNotice={setAudioNotice}
+            worker
+          />
+        )}
       </section>
-
-      {engineer && (
-        <aside className="panel engineer-panel" aria-label="Engineer view">
-          <PanelHeading title={copy.pipelineEvents} detail={copy.lastMessages} />
-          <ol className="events">{s.events.slice(-8).reverse().map((event, index) => (
-            <li key={`${event.type}-${index}`}><b>{event.type}</b><code>{JSON.stringify(event).slice(0, 140)}</code></li>
-          ))}</ol>
-        </aside>
-      )}
+      <footer className={styles.workerFooter}>
+        <label className={styles.readAloudToggle}>
+          <input type="checkbox" checked={readAloud} onChange={(event) => setReadAloud(event.target.checked)} />
+          {copy.readQuestionsAloud}
+        </label>
+      </footer>
     </main>
   )
 }

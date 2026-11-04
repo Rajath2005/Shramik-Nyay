@@ -1,0 +1,125 @@
+.app { min-height: 100dvh; }
+
+.workerApp { display: flex; flex-direction: column; }
+
+.workerFlow {
+  display: flex;
+  width: min(100% - 32px, 660px);
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  margin: 0 auto;
+  padding: clamp(24px, 5vh, 48px) 0 28px;
+}
+
+.workerQuestion { width: 100%; }
+.workerConnection { margin: 0 0 8px; color: var(--mute); font-size: 14px; font-weight: 700; }
+.workerContext { margin: 0 0 8px; color: var(--mute); font-size: 15px; }
+.workerQuestion h1 { max-width: 21ch; margin: 0; font-size: clamp(30px, 8vw, 40px); font-weight: 700; line-height: 1.28; text-wrap: pretty; }
+.workerProgress { margin: 14px 0 8px; color: var(--ink); font-size: 17px; font-variant-numeric: tabular-nums; font-weight: 700; }
+.progressTrack { height: 6px; overflow: hidden; background: color-mix(in srgb, var(--line) 32%, var(--surface)); }
+.progressTrack span { display: block; height: 100%; background: var(--blue); transition: width 180ms ease-out; }
+.workerMic {
+  display: flex;
+  width: 96px;
+  height: 96px;
+  flex: 0 0 96px;
+  align-items: center;
+  justify-content: center;
+  border: 2px solid var(--blue);
+  border-radius: 50%;
+  color: var(--ink);
+  background: var(--raised);
+  transition: border-color 180ms ease, background-color 180ms ease;
+}
+.workerMic svg { width: 36px; height: 36px; fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: 1.8; }
+.workerMic[data-state='listening'] { border-color: var(--amber); color: var(--amber); background: var(--surface); }
+.workerMic[data-state='thinking'] { border-color: var(--blue); background: var(--raised); }
+.workerMic[data-state='speaking'] { border-color: var(--emerald); color: var(--emerald); background: var(--raised); }
+.workerState { min-height: 24px; margin: -8px 0 0; color: var(--ink); font-size: 16px; font-weight: 700; text-align: center; }
+.workerMicHint { margin: -10px 0 0; color: var(--mute); font-size: 14px; text-align: center; }
+.workerSample { display: flex; width: 100%; align-items: center; justify-content: space-between; gap: 16px; padding: 12px 0; border-block: 1px solid var(--line); }
+.workerSample span { font-size: 14px; }
+.workerSample button, .workerTextEntry button {
+  display: inline-flex;
+  min-height: 46px;
+  align-items: center;
+  justify-content: center;
+  padding: 8px 16px;
+  border: 1px solid var(--blue);
+  border-radius: var(--radius-control);
+  color: var(--surface);
+  background: var(--blue);
+  font-weight: 700;
+}
+.workerTyping { width: 100%; text-align: center; }
+.textToggle { min-height: 46px; padding: 8px 12px; border: 0; border-bottom: 2px solid var(--line); color: var(--ink); background: transparent; font-size: 16px; font-weight: 700; }
+.workerTextEntry { display: flex; flex-direction: column; gap: 8px; text-align: left; }
+.workerTextEntry textarea { min-width: 0; min-height: 48px; flex: 1; padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--radius-control); color: var(--ink); background: var(--raised); font: inherit; resize: vertical; }
+.workerTextEntry button { width: 100%; }
+.workerPaperPreview { width: 100%; border-top: 1px solid var(--line); }
+.workerPaperPreview > summary { min-height: 52px; padding: 13px 0; font-size: 16px; font-weight: 700; list-style-position: inside; }
+.workerPaperPreview[open] > summary { border-bottom: 1px solid var(--line); }
+.workerFooter { display: flex; justify-content: center; padding: 8px 16px 14px; }
+.readAloudToggle { display: flex; min-height: 46px; align-items: center; gap: 10px; color: var(--mute); font-size: 14px; }
+.readAloudToggle input { width: 20px; height: 20px; accent-color: var(--blue); }
+.workerError { width: 100%; margin: 0; color: var(--amber); font-size: 15px; font-weight: 700; }
+.workerNotice { width: 100%; margin: 0; color: var(--amber); font-size: 14px; }
+
+.studioApp { position: fixed; inset: 0; height: 100dvh; min-height: 0; overflow: hidden; }
+.studioCanvas { display: flex; width: 100%; height: 100dvh; flex-direction: column; }
+.studioGrid {
+  display: grid;
+  width: 100%;
+  min-height: 0;
+  flex: 1;
+  grid-template-columns: minmax(0, .88fr) minmax(0, 1.12fr);
+  grid-template-rows: minmax(0, .92fr) minmax(0, 1.08fr);
+  grid-template-areas:
+    "audio slots"
+    "transcript paper";
+  gap: 0;
+  padding: 0 22px 18px;
+}
+.audioZone { grid-area: audio; border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+.slotsZone { grid-area: slots; border-bottom: 1px solid var(--line); }
+.transcriptZone { grid-area: transcript; border-right: 1px solid var(--line); }
+.paperZone { display: flex; min-width: 0; min-height: 0; grid-area: paper; flex-direction: column; overflow: auto; padding: 16px 20px 16px 24px; }
+.paperHeading { display: flex; min-height: 32px; flex: 0 0 auto; align-items: baseline; justify-content: space-between; gap: 16px; margin-bottom: 12px; }
+.paperHeading h2 { margin: 0; font-size: 18px; line-height: 1.3; }
+.paperHeading span { max-width: 42%; color: var(--mute); font-size: 13px; text-align: right; }
+.paperError { margin-top: 8px; color: var(--amber); font-size: 13px; overflow-wrap: anywhere; }
+.studioUnsupported { display: none; }
+
+@media (max-width: 1279px), (max-height: 719px) {
+  .studioApp { position: static; inset: auto; height: auto; min-height: 100dvh; overflow: auto; }
+  .studioCanvas { display: none; }
+  .studioUnsupported {
+    display: flex;
+    min-height: 100dvh;
+    flex-direction: column;
+    align-items: flex-start;
+    justify-content: center;
+    gap: 14px;
+    padding: 24px;
+  }
+  .audioZone, .slotsZone, .transcriptZone, .paperZone { border-right: 0; border-bottom: 0; }
+}
+
+@media (max-width: 780px) {
+  .workerFlow { width: min(100% - 36px, 560px); gap: 16px; padding-top: 24px; }
+  .workerQuestion h1 { font-size: clamp(28px, 7vw, 36px); }
+  .paperZone { border: 0; }
+}
+
+@media (max-width: 420px) {
+  .workerFlow { width: calc(100% - 32px); gap: 10px; padding-top: 16px; }
+  .workerContext { font-size: 14px; }
+  .workerQuestion h1 { font-size: 31px; }
+  .workerProgress { margin-top: 10px; }
+  .workerMic { width: 96px; height: 96px; flex-basis: 96px; }
+  .workerMicHint { font-size: 14px; }
+  .workerSample { align-items: flex-start; flex-direction: column; }
+  .workerSample button { width: 100%; }
+}

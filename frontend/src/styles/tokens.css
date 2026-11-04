@@ -1,0 +1,62 @@
+@import url('https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&family=IBM+Plex+Mono:wght@400;500;600&family=Source+Serif+4:wght@500;600;700&display=swap');
+
+@font-face {
+  font-family: 'Noto Sans Devanagari';
+  src: url('/fonts/NotoSansDevanagari.ttf') format('truetype');
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Noto Sans Kannada';
+  src: url('/fonts/NotoSansKannada.ttf') format('truetype');
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+}
+
+:root {
+  color-scheme: light;
+  --surface: #f0f3f5;
+  --raised: #fff;
+  --line: #697985;
+  --ink: #14212b;
+  --mute: #52616d;
+  --amber: #764b00;
+  --emerald: #176940;
+  --blue: #1b5f9e;
+  --paper: #fff9ea;
+  --paper-ink: #1d2a2d;
+  --paper-mute: #536168;
+  --paper-line: #b7b9b1;
+  --paper-verified: #176940;
+  --focus-ring: #1b5f9e;
+  --mono: 'IBM Plex Mono', 'Atkinson Hyperlegible', monospace;
+  --sans: 'Atkinson Hyperlegible', 'Noto Sans Devanagari', 'Noto Sans Kannada', sans-serif;
+  --serif: 'Source Serif 4', Georgia, serif;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --radius-control: 4px;
+  --radius-zone: 8px;
+  --shadow-paper: 2px 2px 0 #c6c8c0;
+  font-family: var(--sans);
+}
+
+:root[data-theme='dark'] {
+  color-scheme: dark;
+  --surface: #101820;
+  --raised: #17232d;
+  --line: #687a8a;
+  --ink: #f3f5f7;
+  --mute: #bac4ce;
+  --amber: #ffd166;
+  --emerald: #80dda8;
+  --blue: #8cc8ff;
+  --focus-ring: #8cc8ff;
+  --shadow-paper: 2px 2px 0 #34404a;
+}
