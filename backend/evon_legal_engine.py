@@ -125,6 +125,7 @@ class EvonLegalEngine:
         trace = ""
         enable_thinking = True
         if self.mode == "LIVE":
+            live_call_failed = False
             try:
                 msg = await self._chat(
                     [{"role": "system", "content": "Respond in the same language and script as the question. "
@@ -139,6 +140,12 @@ class EvonLegalEngine:
                 result.update({k: drafted[k] for k in ("legal_audit_summary", "form_a_clauses") if k in drafted})
             except Exception as error:                    # keep the demo alive; arithmetic is already safe
                 result["draft_warning"] = f"LLM drafting failed: {error}"
+                live_call_failed = True
         else:
             result["form_a_clauses"] = [f"Clause {i}: verified worker statement." for i in range(1, 6)]
-        return {"thinking_trace": trace, "enable_thinking": enable_thinking, "result": result}
+        return {
+            "thinking_trace": trace,
+            "enable_thinking": enable_thinking,
+            "result": result,
+            "live_call_failed": live_call_failed if self.mode == "LIVE" else False,
+        }

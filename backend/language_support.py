@@ -105,6 +105,20 @@ def validate_language(value: object) -> LanguagePreference:
     raise ValueError("language must be auto, hi-IN, kn-IN, or en-IN.")
 
 
+def match_consent_intent(text: str) -> Literal["yes", "no"] | None:
+    tokens = re.findall(r"[a-z]+|[\u0900-\u097f]+|[\u0c80-\u0cff]+", text.casefold())
+    affirmative = {"yes", "haan", "हाँ", "हां", "ಹೌದು"}
+    negative = {"no", "ना", "नहीं", "नही", "nahi", "nahin", "ಇಲ್ಲ"}
+    has_affirmative = any(token in affirmative for token in tokens) or any(
+        tokens[index:index + 2] == ["bhej", "dijiye"]
+        for index in range(len(tokens) - 1)
+    )
+    has_negative = any(token in negative for token in tokens)
+    if has_affirmative == has_negative:
+        return None
+    return "yes" if has_affirmative else "no"
+
+
 def prisma_language_code(preference: str) -> str:
     return PRISMA_LANGUAGE_CODES[validate_language(preference)]
 

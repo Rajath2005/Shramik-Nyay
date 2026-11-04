@@ -1,4 +1,5 @@
 import asyncio
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -7,7 +8,7 @@ from unittest.mock import patch
 
 from evon_legal_engine import FormAClaimSlots
 from form_a_pdf_generator import compile_form_a
-from main import Session
+from main import REPLAY_FIXTURE, Session
 from language_support import MOCK_TRANSCRIPTS, FOLLOWUPS
 
 
@@ -21,6 +22,63 @@ class EventSocket:
 
     async def send_bytes(self, audio):
         self.audio.append(audio)
+
+
+def test_recorded_call_fixture_is_raw_mono_pcm():
+    fixture = REPLAY_FIXTURE.read_bytes()
+
+    assert fixture
+    assert len(fixture) % 2 == 0
+    assert fixture[:4] != b"RIFF"
+    assert len(fixture) >= 8000 * 2
+
+
+def test_live_recorded_call_replay_feeds_fixture_to_prisma_streamer():
+    class FakeStreamer:
+        instances = []
+
+        def __init__(self, *_args, **_kwargs):
+            self.connected = asyncio.Event()
+            self.running = False
+            self.connecting = True
+            self.buffer = bytearray()
+            self.committed = False
+            self.__class__.instances.append(self)
+
+        async def connect_and_run(self):
+            self.connecting = False
+            self.running = True
+            self.connected.set()
+            while self.running:
+                await asyncio.sleep(0)
+
+        def push_pcm_bytes(self, raw):
+            self.buffer.extend(raw)
+
+        async def commit_and_close(self):
+            self.committed = True
+            self.running = False
+
+        async def boost_locality_vocabulary(self, _words):
+            return []
+
+    async def run():
+        socket = EventSocket()
+        session = Session(socket)
+        session.mode = "LIVE"
+        session.engine.mode = "LIVE"
+        with patch("main.PrismaRealtimeStreamer", FakeStreamer):
+            await session.start_recorded_call_replay()
+            replay_task = session.replay_task
+            assert replay_task is not None
+            await replay_task
+        streamer = FakeStreamer.instances[-1]
+        assert bytes(streamer.buffer) == REPLAY_FIXTURE.read_bytes()
+        assert streamer.committed
+        assert any(event["type"] == "replay_started" for event in socket.events)
+        assert any(event["type"] == "replay_finished" for event in socket.events)
+
+    asyncio.run(run())
 
 
 def test_gnani_base_url_supplies_evon_endpoint_with_explicit_override():
@@ -123,6 +181,116 @@ def test_claim_json_does_not_claim_recorded_voice_consent():
 
     assert payload["voice_consent_recorded"] is False
     assert payload["voice_consent_sha256"] is None
+
+
+def test_claim_json_records_only_captured_voice_consent_audio():
+    audio = b"captured affirmative PCM"
+    with TemporaryDirectory() as output_directory:
+        compile_form_a(
+            FormAClaimSlots(worker_name="Synthetic worker"),
+            {"principal_arrears_inr": 0},
+            Path(output_directory),
+            audio,
+        )
+        payload = json.loads((Path(output_directory) / "form-a-claim.json").read_text(encoding="utf-8"))
+
+    assert payload["voice_consent_recorded"] is True
+    assert payload["voice_consent_sha256"] == hashlib.sha256(audio).hexdigest()
+
+
+def test_consent_transcript_is_routed_to_matcher_with_captured_audio():
+    async def run():
+        socket = EventSocket()
+        session = Session(socket)
+        session.awaiting_consent = True
+        audio = b"captured affirmative PCM"
+        await session.on_audio(audio)
+        await session.on_prisma_event({
+            "type": "transcript",
+            "text": "Bhej dijiye",
+            "detected_language_code": "hi-IN",
+        })
+        await asyncio.gather(*list(session._transcript_tasks))
+
+        assert session.consent_state == "yes"
+        assert session.voice_consent_audio == audio
+        status = next(event for event in socket.events if event["type"] == "consent_status")
+        assert status == {
+            "type": "consent_status",
+            "state": "yes",
+            "voice_consent_recorded": True,
+        }
+        assert not any(event["type"] == "evon_stage_a" for event in socket.events)
+
+    asyncio.run(run())
+
+
+def test_typed_consent_can_enable_draft_but_never_records_voice():
+    async def run():
+        socket = EventSocket()
+        session = Session(socket)
+        session.awaiting_consent = True
+        session.audit = {"principal_arrears_inr": 0}
+        session.slots = FormAClaimSlots(
+            eshram_uan="100492837465",
+            worksite_locality_and_sphere="Peenya Industrial Area, Bengaluru",
+        )
+
+        await session.on_utterance("yes")
+
+        assert session.consent_state == "yes"
+        assert session.voice_consent_audio is None
+        assert socket.events[-1]["voice_consent_recorded"] is False
+        with TemporaryDirectory() as output_directory:
+            with patch("main.CLAIMS_DIR", Path(output_directory)):
+                await session.finalize()
+            claim_event = next(event for event in socket.events if event["type"] == "claim_ready")
+            claim_json = Path(output_directory) / claim_event["claim_id"] / "form-a-claim.json"
+            payload = json.loads(claim_json.read_text(encoding="utf-8"))
+            samadhan_json = Path(output_directory) / claim_event["claim_id"] / "samadhan-mapped-draft.json"
+            samadhan_payload = json.loads(samadhan_json.read_text(encoding="utf-8"))
+
+        assert payload["voice_consent_recorded"] is False
+        assert payload["voice_consent_sha256"] is None
+        assert samadhan_payload["payload_type"] == "samadhan_mapped_draft"
+        assert samadhan_payload["official_api_schema"] is False
+        assert samadhan_payload["filing_status"] == "not_filed"
+        assert samadhan_payload["claimant"]["worker_name"] == "Ramesh Kumar Verma"
+        assert samadhan_payload["uan_profile"]["source"] == "synthetic_demo_registry"
+        assert samadhan_payload["labour_office"]["sphere"] == "state"
+        assert claim_event["json_url"].endswith("/form-a.json")
+
+    asyncio.run(run())
+
+
+def test_finalize_requires_affirmative_consent_and_passes_audio_metadata():
+    async def run():
+        socket = EventSocket()
+        session = Session(socket)
+        session.audit = {"principal_arrears_inr": 0}
+        session.awaiting_consent = True
+
+        await session.on_utterance("no")
+
+        assert session.consent_state == "no"
+        await session.finalize()
+
+        assert socket.events[-1]["type"] == "error"
+        assert not any(event["type"] == "claim_ready" for event in socket.events)
+
+        session.consent_state = "yes"
+        session.voice_consent_audio = b"affirmative audio"
+        with TemporaryDirectory() as output_directory:
+            with patch("main.CLAIMS_DIR", Path(output_directory)):
+                await session.finalize()
+            claim_event = next(event for event in socket.events if event["type"] == "claim_ready")
+            claim_json = Path(output_directory) / claim_event["claim_id"] / "form-a-claim.json"
+            payload = json.loads(claim_json.read_text(encoding="utf-8"))
+
+        assert payload["voice_consent_recorded"] is True
+        assert payload["voice_consent_sha256"] == hashlib.sha256(b"affirmative audio").hexdigest()
+
+    asyncio.run(run())
 
 
 def test_live_audit_streams_timbre_audio_and_surfaces_failure():

@@ -3,6 +3,7 @@ import unittest
 from language_support import (
     FOLLOWUPS,
     MOCK_TRANSCRIPTS,
+    match_consent_intent,
     number_to_spoken_words,
     prisma_language_code,
     readback_script,
@@ -41,6 +42,27 @@ class LanguageSupportTests(unittest.TestCase):
         self.assertEqual(validate_language("auto"), "auto")
         with self.assertRaisesRegex(ValueError, "language must be"):
             validate_language("fr-FR")
+
+    def test_consent_intent_matches_supported_yes_and_no_phrases(self):
+        examples = {
+            "haan": "yes",
+            "हाँ": "yes",
+            "bhej dijiye": "yes",
+            "ಹೌದು": "yes",
+            "yes, please": "yes",
+            "ना": "no",
+            "नहीं": "no",
+            "ಇಲ್ಲ": "no",
+            "no, thank you": "no",
+        }
+        for utterance, expected in examples.items():
+            with self.subTest(utterance=utterance):
+                self.assertEqual(match_consent_intent(utterance), expected)
+
+    def test_consent_intent_rejects_unknown_or_conflicting_responses(self):
+        for utterance in ("", "maybe", "yesterday", "I am not sure", "yes no", "haan nahi"):
+            with self.subTest(utterance=utterance):
+                self.assertIsNone(match_consent_intent(utterance))
 
 
 if __name__ == "__main__":
