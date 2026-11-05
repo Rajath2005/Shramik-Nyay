@@ -4,19 +4,9 @@ Shramik-Nyay is a voice-led statutory wage redressal studio. The current impleme
 provides a deterministic `MOCK_REPLAY` flow so the telemetry console can be developed
 without consuming external Gnani credits.
 
+![Shramik-Nyay architecture and workflow](docs/screenshots/shramik_nyay_architecture_flow.gif)
+
 ## Architecture
-
-### System architecture
-
-![Shramik-Nyay system architecture](docs/diagrams/system-architecture.svg)
-
-### Production deployment
-
-![Shramik-Nyay production deployment topology](docs/diagrams/deployment-topology.svg)
-
-### Runtime and safety flow
-
-![Shramik-Nyay request and safety flow](docs/diagrams/runtime-flow.svg)
 
 Editable Draw.io sources for these diagrams:
 
@@ -34,11 +24,8 @@ the backend and are never contacted by the mock replay.
 The interface has a focused Worker mode for collecting one answer at a time and a
 Studio mode for reviewing the transcript, statutory checks, and draft Form A.
 
-![Worker mode](docs/screenshots/worker-mode.png)
-
 Studio mode is available in the running frontend for reviewing the transcript,
-statutory checks, and draft Form A. The repository currently includes the Worker
-mode screenshot above; no unavailable Studio or GIF assets are referenced here.
+statutory checks, and draft Form A.
 
 ## Run locally
 
