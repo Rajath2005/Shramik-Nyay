@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import os
 import unicodedata
 from collections.abc import Awaitable, Callable
 
 from websockets.asyncio.client import connect as websocket_connect
+from websockets.exceptions import ConnectionClosed, InvalidStatus
 
 from language_support import prisma_language_code
 
@@ -24,11 +26,14 @@ PRISMA_SEED_WORDS = [
     "Advance",
     "Overtime",
 ]
-SUBSTITUTION_MAP = [
-    {"patterns": ["thekedar"], "replacement": "Contractor (Thekedar)"},
-    {"patterns": ["dihadi"], "replacement": "Daily Wage (Dihadi)"},
-    {"patterns": ["rokda"], "replacement": "Cash Wage"},
-]
+LOGGER = logging.getLogger(__name__)
+
+
+class PrismaStreamError(RuntimeError):
+    def __init__(self, engineer_message: str, worker_message: str) -> None:
+        super().__init__(engineer_message)
+        self.engineer_message = engineer_message
+        self.worker_message = worker_message
 
 
 def _is_single_word(value: str) -> bool:
@@ -59,14 +64,16 @@ class PrismaRealtimeStreamer:
     VAD close segments) whenever the browser has not sent audio yet."""
 
     def __init__(self, api_key: str, on_server_event: Callable[[dict], Awaitable[None]],
-                 *, sample_rate: int = 8000, lang_code: str = "hi-IN,en-IN",
+                 *, sample_rate: int = 8000, lang_code: str = "indic-auto",
                  fmt: str = "transcribe", seed_words: list[str] | None = None,
                  ws_url: str | None = None) -> None:
         if sample_rate not in (8000, 16000):
             raise ValueError("sample_rate must be 8000 or 16000")
-        if lang_code != "hi-IN,en-IN" and lang_code not in {
-            prisma_language_code("auto"), prisma_language_code("kn-IN"), prisma_language_code("en-IN")
-        }:
+        valid_language_codes = {
+            prisma_language_code(language)
+            for language in ("auto", "hi-IN", "kn-IN", "en-IN")
+        }
+        if lang_code not in valid_language_codes:
             raise ValueError("lang_code must be a supported Prisma language preference.")
         self.api_key, self.on_server_event = api_key, on_server_event
         self.ws_url = ws_url or os.getenv("GNANI_STT_WS_URL", PRISMA_WS_URL)
@@ -86,24 +93,22 @@ class PrismaRealtimeStreamer:
         self._commit_sent_at: float | None = None
 
     def headers(self) -> dict[str, str]:
-        h = {
+        headers = {
             "x-api-key-id": self.api_key,
-            "model": "prisma-v3.0",
-            "language_code": self.lang_code,
+            "x-model": "prisma-v3.0",
+            "lang_code": self.lang_code,
             "x-sample-rate": str(self.sample_rate),
-            "format": self.fmt,
+            "x-format": self.fmt,
             "itn_native_numerals": "false",
             "x-vad-threshold": "0.72",
             "x-min-speech-ms": "200",
             "x-min-silence-ms": "700",
             "x-min-segment-ms": "150",
-            "x-max-speech-s": "60",
+            "x-max-speech-s": "30",
         }
         if self.seed_words:
-            h["keyterms"] = json.dumps(self.seed_words)
-        h["enable_substitution"] = "true"
-        h["substitution_map"] = json.dumps(SUBSTITUTION_MAP)
-        return h
+            headers["x-bias-list"] = json.dumps(self.seed_words)
+        return headers
 
     def push_pcm_bytes(self, raw: bytes) -> None:
         self.buffer.extend(raw)
@@ -111,15 +116,39 @@ class PrismaRealtimeStreamer:
     async def connect_and_run(self) -> None:
         self.connecting = True
         try:
-            async with websocket_connect(self.ws_url, additional_headers=self.headers()) as ws:
-                self.ws, self.running = ws, True
-                self._connection_ready.set()
-                await asyncio.gather(self._pace(), self._listen())
+            try:
+                async with websocket_connect(self.ws_url, additional_headers=self.headers()) as ws:
+                    self.ws, self.running = ws, True
+                    self._connection_ready.set()
+                    await asyncio.gather(self._pace(), self._listen())
+            except ConnectionClosed as error:
+                close = error.rcvd
+                code = close.code if close else None
+                reason = close.reason if close else ""
+                LOGGER.error("Prisma websocket closed: code=%s reason=%s", code, reason)
+                raise PrismaStreamError(
+                    f"Prisma websocket closed: code={code}, reason={reason!r}",
+                    "The live speech service disconnected. Please try again or type your answer.",
+                ) from error
+            except InvalidStatus as error:
+                response = error.response
+                body = bytes(response.body).decode("utf-8", "replace")
+                LOGGER.error(
+                    "Prisma websocket handshake rejected: status=%s body=%s",
+                    response.status_code,
+                    body,
+                )
+                raise PrismaStreamError(
+                    f"Prisma websocket handshake rejected: status={response.status_code}, body={body!r}",
+                    "The live speech service rejected the connection. Please try again or type your answer.",
+                ) from error
         finally:
             self.running = False
             self.connecting = False
+            self.connected.clear()
             self._connection_ready.set()
             self._audio_ready.set()
+            self.ws = None
 
     async def _pace(self) -> None:
         await self._audio_ready.wait()
@@ -135,6 +164,8 @@ class PrismaRealtimeStreamer:
                 del self.buffer[:FRAME_BYTES]
             else:
                 frame = silence
+            if len(frame) != FRAME_BYTES:
+                raise AssertionError(f"Prisma audio frame must be exactly {FRAME_BYTES} bytes.")
             async with self._send_lock:
                 await self.ws.send(frame)
             if has_pcm:
@@ -211,3 +242,9 @@ class PrismaRealtimeStreamer:
             pass
         self.running = False
         await self.ws.close()
+
+    async def close(self) -> None:
+        self.running = False
+        self._audio_ready.set()
+        if self.ws:
+            await self.ws.close()

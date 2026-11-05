@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import asyncio
+import argparse
 import base64
 import json
 import os
+import time
 import wave
 from datetime import datetime
 from pathlib import Path
@@ -20,6 +22,12 @@ HF_TOKEN = os.getenv("HF_TOKEN", "").strip()
 TIMBRE_WS_URL = os.getenv("GNANI_TTS_API_URL", "wss://api.vachana.ai/api/v1/tts")
 PRISMA_WS_URL = os.getenv("GNANI_STT_WS_URL", "wss://api.vachana.ai/stt/v3/stream")
 FIXTURE_WAV = ROOT / "fixtures" / "live_tts_8khz.wav"
+EVON_ENDPOINT_URL = os.getenv(
+    "EVON_ENDPOINT_URL",
+    f"{os.getenv('GNANI_API_BASE_URL', 'https://api.vachana.ai').rstrip('/')}"
+    "/llm/evon-v3.3/chat/completions",
+)
+EVON_MODEL_NAME = "gnani/gnani-evon-v3.3-30B-A3B"
 
 
 async def check_huggingface_access() -> None:
@@ -34,6 +42,83 @@ async def check_huggingface_access() -> None:
         raise RuntimeError(f"Hugging Face check failed ({response.status_code}): {response.text}")
     model = response.json()
     print(f"HF access confirmed: {model.get('id')}")
+
+
+async def check_evon() -> None:
+    print("\n=== Evon chat-completions (opt-in) ===")
+    cases = (
+        (
+            "Stage A",
+            False,
+            [
+                {
+                    "role": "system",
+                    "content": (
+                        "Return ONLY JSON with an integer field named days_worked. "
+                        "Use 0 if unknown."
+                    ),
+                },
+                {"role": "user", "content": "The worker gave no day count."},
+            ],
+        ),
+        (
+            "Stage B",
+            True,
+            [
+                {
+                    "role": "system",
+                    "content": (
+                        "Return ONLY JSON with a string field named summary. "
+                        "Do not include markdown."
+                    ),
+                },
+                {"role": "user", "content": "Summarize: unpaid wages."},
+            ],
+        ),
+    )
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        for label, enable_thinking, messages in cases:
+            payload = {
+                "model": EVON_MODEL_NAME,
+                "messages": messages,
+                "temperature": 0.6,
+                "top_p": 0.95,
+                "repetition_penalty": 1.0 if enable_thinking else 1.1,
+                "max_tokens": 16384 if enable_thinking else 2048,
+                "chat_template_kwargs": {"enable_thinking": enable_thinking},
+                "stream": False,
+            }
+            started = time.perf_counter()
+            try:
+                response = await client.post(
+                    EVON_ENDPOINT_URL,
+                    json=payload,
+                    headers={"Authorization": f"Bearer {GNANI_API_KEY}"},
+                )
+                latency_ms = round((time.perf_counter() - started) * 1000, 1)
+                response.raise_for_status()
+                message = response.json()["choices"][0]["message"]
+                content = message.get("content", "")
+                json_parsed = False
+                try:
+                    json.loads(content)
+                    json_parsed = True
+                except (TypeError, json.JSONDecodeError):
+                    pass
+                reasoning_present = bool(message.get("reasoning_content"))
+                print(
+                    f"{label}: status={response.status_code} latency_ms={latency_ms} "
+                    f"enable_thinking={enable_thinking} "
+                    f"reasoning_content={reasoning_present} json_parsed={json_parsed}"
+                )
+            except Exception as error:
+                latency_ms = round((time.perf_counter() - started) * 1000, 1)
+                print(
+                    f"{label}: status=FAIL latency_ms={latency_ms} "
+                    f"enable_thinking={enable_thinking} "
+                    f"reasoning_content=unknown json_parsed=False "
+                    f"error={type(error).__name__}: {error}"
+                )
 
 
 async def synthesize_timbre() -> bytes:
@@ -89,22 +174,25 @@ async def check_prisma(wav_bytes: bytes) -> None:
     raw_pcm += b"\x00" * 16000
     headers = {
         "x-api-key-id": GNANI_API_KEY,
-        "model": "prisma-v3.0",
-        "language_code": "hi-IN,en-IN",
+        "x-model": "prisma-v3.0",
+        "lang_code": "indic-auto",
         "x-sample-rate": "8000",
-        "format": "transcribe",
+        "x-format": "transcribe",
         "itn_native_numerals": "false",
         "x-vad-threshold": "0.72",
         "x-min-speech-ms": "200",
         "x-min-silence-ms": "700",
         "x-min-segment-ms": "150",
+        "x-max-speech-s": "30",
+        "x-bias-list": json.dumps(["Peenya", "Thekedar", "Dihadi", "Ramesh"]),
     }
     async with websocket_connect(PRISMA_WS_URL, additional_headers=headers) as websocket:
-        await websocket.send(json.dumps({
-            "type": "update_settings",
-            "bias": {"list": ["Peenya", "Thekedar", "Dihadi", "Ramesh"], "score": 2.0},
-        }))
-        await wait_for_settings_updated(websocket, expected_bias_count=4, expected_bias_score=2.0)
+        while True:
+            event = json.loads(await asyncio.wait_for(websocket.recv(), timeout=3.0))
+            if event.get("type") == "connected":
+                break
+            if event.get("type") == "error":
+                raise RuntimeError(f"Prisma API error: {event}")
         for offset in range(0, len(raw_pcm), 1024):
             frame = raw_pcm[offset:offset + 1024].ljust(1024, b"\x00")
             await websocket.send(frame)
@@ -116,7 +204,7 @@ async def check_prisma(wav_bytes: bytes) -> None:
             if event.get("type") == "error":
                 raise RuntimeError(f"Prisma API error: {event}")
             if event.get("type") == "transcript":
-                print(f"Transcript: {event.get('text')}")
+                print(f"Transcript received: {event.get('text', '')}")
                 return
     raise RuntimeError("Prisma closed without a transcript")
 
@@ -184,12 +272,17 @@ async def wait_for_settings_updated(
         return
 
 
-async def main() -> None:
+async def main(*, run_evon: bool = False) -> None:
     if not GNANI_API_KEY:
         raise RuntimeError("GNANI_API_KEY is missing in backend/.env")
     await check_huggingface_access()
+    if run_evon:
+        await check_evon()
     await check_prisma(await synthesize_timbre())
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--evon", action="store_true", help="Run one Stage A and one Stage B Evon check.")
+    args = parser.parse_args()
+    asyncio.run(main(run_evon=args.evon))

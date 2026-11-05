@@ -6,24 +6,44 @@ without consuming external Gnani credits.
 
 ## Architecture
 
-```mermaid
-flowchart LR
-    Browser["React + Vite frontend"] -->|HTTP / WebSocket| API["FastAPI backend"]
-    API --> Rules["Deterministic wage rules"]
-    API --> Draft["Form A PDF + SAMADHAN-mapped draft"]
-    API --> Mock["MOCK_REPLAY fixtures"]
-    API -->|LIVE only| STT["Gnani Prisma v3 STT"]
-    API -->|LIVE only| LLM["Gnani Evon v3.3"]
-    API -->|LIVE only| TTS["Gnani Timbre v3 TTS"]
-    API --> Claims["Local backend/claims artifacts"]
-```
+### System architecture
+
+![Shramik-Nyay system architecture](docs/diagrams/system-architecture.svg)
+
+### Production deployment
+
+![Shramik-Nyay production deployment topology](docs/diagrams/deployment-topology.svg)
+
+### Runtime and safety flow
+
+![Shramik-Nyay request and safety flow](docs/diagrams/runtime-flow.svg)
+
+Editable Draw.io sources for these diagrams:
+
+- [System architecture](docs/diagrams/system-architecture.drawio)
+- [Production deployment topology](docs/diagrams/deployment-topology.drawio)
+- [Request and safety flow](docs/diagrams/runtime-flow.drawio)
 
 The browser owns presentation, microphone capture, and browser-voice fallback. The
 backend owns session orchestration, deterministic arithmetic, statutory narrative
 generation, and draft artifact creation. External Gnani services are isolated behind
 the backend and are never contacted by the mock replay.
 
+## Screenshots and demo
+
+The interface has a focused Worker mode for collecting one answer at a time and a
+Studio mode for reviewing the transcript, statutory checks, and draft Form A.
+
+![Worker mode](docs/screenshots/worker-mode.png)
+
+Studio mode is available in the running frontend for reviewing the transcript,
+statutory checks, and draft Form A. The repository currently includes the Worker
+mode screenshot above; no unavailable Studio or GIF assets are referenced here.
+
 ## Run locally
+
+For a hosted deployment, see [`docs/DEPLOY.md`](docs/DEPLOY.md). It covers a
+WebSocket-capable Render backend and a Vercel/Netlify/Cloudflare Pages frontend.
 
 ### Backend
 
@@ -63,8 +83,9 @@ npm run lint
 ```
 
 Use the language selector to choose automatic detection or Hindi, Kannada, or English.
-Automatic mode uses Prisma's `indic-auto` setting for live speech and detects the script
-of typed text; Hindi is the fallback when the language is ambiguous. The sample replay,
+Automatic mode uses Prisma's `indic-auto` setting for live speech. Explicit live language
+values are single `hi-IN`, `kn-IN`, or `en-IN` codes; comma-separated language values are
+not accepted by the provider. The sample replay,
 follow-up questions, browser speech, number-to-words read-back, and Timbre request follow
 the selected or detected language.
 
@@ -158,7 +179,7 @@ python .\verify_live_apis.py
 
 The generated WAV is ignored by Git.
 
-## Limitations and secret-safety status
+## Known limitations
 
 - The generated Form A and SAMADHAN-mapped JSON are review drafts. They are not an
   official filing, legal advice, or a submission to SAMADHAN.
@@ -167,10 +188,17 @@ The generated WAV is ignored by Git.
 - Browser speech synthesis is a fallback and varies by browser/OS. Microphone capture
   requires permission and a secure browser context in some deployments.
 - Claim artifacts are stored locally under `backend/claims`; there is no production
-  authentication, multi-user isolation, durable database, or retention policy.
+  authentication, multi-user isolation, or durable database. Hosted deployments
+  use the configured claim TTL cleanup; LIVE provider access additionally requires
+  the backend-only `SHRAMIK_LIVE_PASSCODE`, per-IP WebSocket rate limiting, and
+  the per-session credit caps.
 - `backend/.env` is currently ignored (`.gitignore`) and is not tracked. Current
   tracked source contains placeholders/test values only, but the Git history audit found
   previously committed credential values in older commits. Therefore the repository
   cannot honestly be described as having a clean secret history: rotate those
   credentials immediately and rewrite/remove the affected history before publishing.
   Logs and test fixtures must continue to use placeholders such as `offline-test-key`.
+
+## License
+
+This project is available under the [MIT License](LICENSE).

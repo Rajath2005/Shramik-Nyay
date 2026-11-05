@@ -68,6 +68,9 @@ export default function ClaimSlots({
       {audit && (
         <section className={styles.audit} aria-label={copy.statutoryChecks}>
           <h3>{copy.statutoryChecks}</h3>
+          {audit.draft_warning && (
+            <p role="alert">Drafting incomplete: {audit.draft_warning}</p>
+          )}
           <ul>
             {audit.checks.map((check) => {
               const status: AuditStatus = check.status === 'pass' || check.status === 'fail' || check.status === 'warn'

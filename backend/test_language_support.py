@@ -15,8 +15,8 @@ from language_support import (
 class LanguageSupportTests(unittest.TestCase):
     def test_auto_and_explicit_language_resolution(self):
         self.assertEqual(prisma_language_code("auto"), "indic-auto")
-        self.assertEqual(prisma_language_code("hi-IN"), "hi-IN,en-IN")
-        self.assertEqual(prisma_language_code("kn-IN"), "kn-IN,en-IN")
+        self.assertEqual(prisma_language_code("hi-IN"), "hi-IN")
+        self.assertEqual(prisma_language_code("kn-IN"), "kn-IN")
         self.assertEqual(prisma_language_code("en-IN"), "en-IN")
         self.assertEqual(resolve_language("auto", text=MOCK_TRANSCRIPTS["kn-IN"]), "kn-IN")
         self.assertEqual(resolve_language("auto", text=MOCK_TRANSCRIPTS["hi-IN"]), "hi-IN")

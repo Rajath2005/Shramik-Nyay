@@ -1,0 +1,63 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="620" viewBox="0 0 1200 620" role="img" aria-labelledby="title description">
+  <title id="title">Shramik-Nyay architecture</title>
+  <desc id="description">A React frontend communicates with a FastAPI backend, which coordinates deterministic wage rules, claim artifacts, replay fixtures, and optional Gnani services.</desc>
+  <defs>
+    <style>
+      .box { fill: #17232d; stroke: #8cc8ff; stroke-width: 2; }
+      .local { fill: #243746; stroke: #80dda8; stroke-width: 2; }
+      .external { fill: #3a3020; stroke: #ffd166; stroke-width: 2; }
+      .text { fill: #f3f5f7; font: 600 18px Atkinson Hyperlegible, Arial, sans-serif; text-anchor: middle; }
+      .small { fill: #bac4ce; font: 15px Atkinson Hyperlegible, Arial, sans-serif; text-anchor: middle; }
+      .arrow { fill: none; stroke: #8cc8ff; stroke-width: 2; marker-end: url(#arrowhead); }
+      .optional { fill: none; stroke: #ffd166; stroke-width: 2; stroke-dasharray: 8 7; marker-end: url(#arrowhead-yellow); }
+    </style>
+    <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#8cc8ff"/>
+    </marker>
+    <marker id="arrowhead-yellow" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#ffd166"/>
+    </marker>
+  </defs>
+  <rect width="1200" height="620" fill="#101820"/>
+  <text x="60" y="52" text-anchor="start" fill="#f3f5f7" font="700 28px Atkinson Hyperlegible, Arial, sans-serif">Shramik-Nyay</text>
+  <text x="60" y="80" text-anchor="start" fill="#bac4ce" font="16px Atkinson Hyperlegible, Arial, sans-serif">Voice-led wage redressal studio · local replay first, live providers optional</text>
+
+  <rect class="box" x="70" y="160" width="250" height="130" rx="8"/>
+  <text class="text" x="195" y="205">React + Vite</text>
+  <text class="small" x="195" y="235">Worker / Studio modes</text>
+  <text class="small" x="195" y="260">microphone · transcript · paper</text>
+
+  <rect class="box" x="475" y="140" width="250" height="170" rx="8"/>
+  <text class="text" x="600" y="185">FastAPI backend</text>
+  <text class="small" x="600" y="215">session orchestration</text>
+  <text class="small" x="600" y="240">WebSocket + HTTP API</text>
+  <text class="small" x="600" y="265">mock replay / live gate</text>
+
+  <rect class="local" x="420" y="395" width="220" height="110" rx="8"/>
+  <text class="text" x="530" y="438">Deterministic rules</text>
+  <text class="small" x="530" y="468">wage arithmetic</text>
+  <text class="small" x="530" y="490">statutory checks</text>
+
+  <rect class="local" x="700" y="395" width="220" height="110" rx="8"/>
+  <text class="text" x="810" y="438">Draft artifacts</text>
+  <text class="small" x="810" y="468">Form A PDF + JSON</text>
+  <text class="small" x="810" y="490">local claims/ storage</text>
+
+  <rect class="local" x="180" y="395" width="180" height="110" rx="8"/>
+  <text class="text" x="270" y="438">MOCK_REPLAY</text>
+  <text class="small" x="270" y="468">offline fixtures</text>
+  <text class="small" x="270" y="490">no provider credits</text>
+
+  <rect class="external" x="930" y="140" width="210" height="170" rx="8"/>
+  <text class="text" x="1035" y="185">Gnani services</text>
+  <text class="small" x="1035" y="215">Prisma v3 STT</text>
+  <text class="small" x="1035" y="240">Evon v3.3 LLM</text>
+  <text class="small" x="1035" y="265">Timbre v3 TTS</text>
+
+  <path class="arrow" d="M320 225 H475"/>
+  <path class="arrow" d="M600 310 V395"/>
+  <path class="arrow" d="M650 280 C730 320 780 345 810 395"/>
+  <path class="arrow" d="M475 260 C400 300 330 345 270 395"/>
+  <path class="optional" d="M725 210 H930"/>
+  <text x="825" y="192" fill="#ffd166" font="14px Atkinson Hyperlegible, Arial, sans-serif">LIVE only</text>
+</svg>

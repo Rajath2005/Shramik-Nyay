@@ -1,4 +1,6 @@
 backend/.env
+frontend/.env
+frontend/.env.local
 backend/claims/
 backend/venv/
 __pycache__/

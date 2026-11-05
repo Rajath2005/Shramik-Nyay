@@ -15,10 +15,14 @@ PAYMENT_DEADLINE_LARGE = 10     # establishments >= 1,000 workers
 LIMITATION_DAYS = 365           # approx. 12 months
 DEDUCTION_CAP = 0.50
 DEDUCTION_COMPENSATION_MULTIPLE = 10  # applies to unlawful deductions only (verify)
+DEFAULT_ESTABLISHMENT_SIZE = "under 1,000 workers"
+DEFAULT_SECTOR = "general wage rules"
 
 NOTICE = (
     "Draft prepared from the worker's own statement. Not legal advice. "
-    "Verify statute and compensation limits before filing."
+    "Verify statute, establishment size, sector, and compensation limits before filing. "
+    f"If establishment size is not supplied, the draft defaults to {DEFAULT_ESTABLISHMENT_SIZE} "
+    f"for the payment deadline; if sector is not supplied, it defaults to {DEFAULT_SECTOR}."
 )
 
 
@@ -43,6 +47,8 @@ def compute_claim(
     wage_period_end: str | None = None,
     filing_date: date | None = None,
     large_establishment: bool = False,
+    establishment_size: str | None = None,
+    sector: str | None = None,
 ) -> dict:
     """`unlawful_deductions` is the part of the arrears the contractor says he cut;
     it is reported for cap checks and compensation but never added twice."""
@@ -53,7 +59,12 @@ def compute_claim(
     deductions = unlawful_deductions or 0
     today = filing_date or date.today()
     start, end = _d(wage_period_start), _d(wage_period_end)
-    deadline_days = PAYMENT_DEADLINE_LARGE if large_establishment else PAYMENT_DEADLINE_SMALL
+    normalized_size = (establishment_size or "").strip().lower()
+    inferred_large = normalized_size in {
+        "large", "1000+", ">=1000", "1000 or more", "1000 or more workers",
+    }
+    is_large = large_establishment or inferred_large
+    deadline_days = PAYMENT_DEADLINE_LARGE if is_large else PAYMENT_DEADLINE_SMALL
 
     checks: list[dict] = []
     if start and end and end >= start:
@@ -85,4 +96,6 @@ def compute_claim(
         "max_compensation_inr": deductions * DEDUCTION_COMPENSATION_MULTIPLE if deductions else None,
         "checks": checks,
         "notice": NOTICE,
+        "establishment_size_used": establishment_size or DEFAULT_ESTABLISHMENT_SIZE,
+        "sector_used": sector or DEFAULT_SECTOR,
     }

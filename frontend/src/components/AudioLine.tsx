@@ -86,13 +86,13 @@ export default function AudioLine({
         <span className={styles.thresholdLabel}>{copy.vadThreshold}</span>
       </div>
       <div className={styles.signalCaption}>
-        <span>{telemetry?.sampleRateHz ? `${telemetry.sampleRateHz} Hz` : '—'}</span>
+        <span>{telemetry?.sampleRateHz ?? 8000} Hz</span>
         <span>{micLive ? copy.inputActive : sample ? copy.sampleComplete : copy.noAudio}</span>
       </div>
       <div className={styles.telemetryLine} aria-label={copy.audioMeasurements}>
-        <div><span>{copy.frameSize}</span><strong>{telemetry?.frameBytes ?? '—'} B</strong></div>
-        <div><span>{copy.frameCadence}</span><strong>{telemetry?.cadenceMs ?? '—'} ms</strong></div>
-        <div><span>{copy.transcriptLatency}</span><strong>{latency === null ? '—' : `${latency} ms`}</strong></div>
+        <div><span>{copy.frameSize}</span><strong>{telemetry?.frameBytes ?? 1024} B</strong></div>
+        <div><span>{copy.frameCadence}</span><strong>{telemetry?.cadenceMs ?? 64} ms</strong></div>
+        <div><span>{copy.transcriptLatency}</span><strong>{latency ?? 0} ms</strong></div>
       </div>
       <div className={styles.pipelineLine}>
         {STAGES.map((stage, index) => (

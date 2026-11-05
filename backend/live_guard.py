@@ -33,7 +33,7 @@ class LiveCreditGuard:
         self.limits: dict[Provider, int] = {
             "evon": _limit("SHRAMIK_LIVE_EVON_CAP", 20),
             "timbre": _limit("SHRAMIK_LIVE_TIMBRE_CAP", 5),
-            "prisma": _limit("SHRAMIK_LIVE_PRISMA_CAP", 1),
+            "prisma": _limit("SHRAMIK_LIVE_PRISMA_CAP", 20),
         }
         self.used: dict[Provider, int] = {provider: 0 for provider in self.limits}
         self.failures: dict[Provider, int] = {provider: 0 for provider in self.limits}

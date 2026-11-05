@@ -15,9 +15,10 @@
 .actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .actions a, .actions button { display: inline-flex; min-height: 46px; align-items: center; justify-content: center; padding: 8px 14px; border: 1px solid var(--blue); border-radius: var(--radius-control); color: var(--surface); background: var(--blue); font-weight: 700; text-decoration: none; }
 .actions .secondary { border-color: var(--line); color: var(--ink); background: transparent; }
+.actions .danger { border-color: var(--amber); color: var(--ink); background: transparent; }
 .readback { grid-column: 1 / -1; }
 .readback summary { display: inline-flex; min-height: 46px; align-items: center; color: var(--blue); font-size: 14px; font-weight: 700; }
-.readback p { max-height: 140px; overflow: auto; margin: 0; color: var(--ink); font-size: 14px; line-height: 1.55; }
+.readback p { max-height: 140px; overflow: hidden; margin: 0; color: var(--ink); font-size: 14px; line-height: 1.55; }
 .bar audio { width: min(100%, 360px); min-height: 40px; }
 .audioNotice { color: var(--mute); font-size: 13px; }
 .worker { display: grid; width: 100%; gap: 8px; padding: 14px 16px; }

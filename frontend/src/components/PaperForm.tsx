@@ -10,6 +10,7 @@ type Props = {
   audit: Audit | null
   sample: boolean
   compact?: boolean
+  studio?: boolean
   arrearsDisplayValue: number | null
 }
 
@@ -43,6 +44,7 @@ export default function PaperForm({
   audit,
   sample,
   compact = false,
+  studio = false,
   arrearsDisplayValue,
 }: Props) {
   const fieldRows: FieldRow[] = FIELD_KEYS.map((key, index) => ({
@@ -53,7 +55,7 @@ export default function PaperForm({
   const compactRows = [fieldRows[0], fieldRows[1], fieldRows[3]]
 
   return (
-    <div className={`${styles.sheet}${compact ? ` ${styles.compact}` : ''}`}>
+    <div className={`${styles.sheet}${compact ? ` ${styles.compact}` : ''}${studio ? ` ${styles.studio}` : ''}`}>
       <header className={styles.documentHeader}>
         <div className={styles.identity}>
           <span className={styles.wordmark}>श्रमिक-न्याय</span>
@@ -64,7 +66,7 @@ export default function PaperForm({
       <h2 className={styles.title} lang={copy.languageCode}>{copy.claimTitle}</h2>
       {sample && <p className={styles.sample}>{copy.sampleDetails}</p>}
 
-      {compact ? (
+      {compact && !studio ? (
         <>
           <dl className={styles.compactFields}>
             {compactRows.map((row) => (

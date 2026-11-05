@@ -1,11 +1,11 @@
-.zone { display: flex; min-width: 0; min-height: 0; flex-direction: column; overflow: auto; padding: 16px 20px; }
+.zone { display: flex; min-width: 0; min-height: 0; flex-direction: column; overflow: hidden; padding: 16px 20px; }
 .heading { display: flex; min-height: 32px; flex: 0 0 auto; align-items: baseline; justify-content: space-between; gap: 16px; margin-bottom: 12px; }
 .heading h2 { margin: 0; font-size: 18px; line-height: 1.3; }
 .metadata { display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
 .languageTag, .sampleTag { color: var(--mute); font-size: 13px; text-align: right; }
 .sampleTag { color: var(--amber); }
 .latency { color: var(--ink); font: 500 12px/1.35 var(--mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
-.text { min-height: 0; flex: 1; overflow: auto; margin: 8px 0 0; color: var(--ink); font-size: clamp(21px, 1.6vw, 30px); font-weight: 600; line-height: 1.45; overflow-wrap: anywhere; }
+.text { min-height: 0; flex: 1; margin: 8px 0 0; color: var(--ink); font-size: 30px; font-weight: 600; line-height: 1.35; overflow-wrap: anywhere; }
 .text mark { padding: 0 1px; color: var(--ink); background: transparent; font-weight: 700; text-decoration: underline; text-decoration-color: var(--amber); text-decoration-thickness: 2px; text-underline-offset: 3px; }
 .footer { display: flex; align-items: center; gap: 8px; margin: 16px 0 12px; color: var(--mute); font-size: 13px; }
 .stateMark { width: 8px; height: 8px; border: 1px solid var(--line); border-radius: 50%; }

@@ -13,7 +13,6 @@ import { useSession } from './hooks/useSession'
 import {
   COPY,
   FIELD_LABELS,
-  FIELD_QUESTIONS,
   LANGUAGE_LABELS,
   type SupportedLanguage,
 } from './language'
@@ -21,6 +20,8 @@ import { FIELD_KEYS, isSlotVerified } from './claimSlots'
 import type { ViewMode } from './components/types'
 
 const EMPTY_WAVEFORM = Array.from({ length: 28 }, () => 0)
+const STUDIO_WIDTH = 1920
+const STUDIO_HEIGHT = 1080
 const plain = (text: string) => text.replace(/<[^>]+>/g, ' ')
 
 function speak(text: string, language: string, onSpeakingChange?: (speaking: boolean) => void) {
@@ -51,6 +52,8 @@ export default function App() {
   const [noiseLevel, setNoiseLevel] = useState(0)
   const [uan, setUan] = useState('')
   const [audioNotice, setAudioNotice] = useState('')
+  const [studioScale, setStudioScale] = useState(1)
+  const studioViewportRef = useRef<HTMLElement>(null)
   const readbackAudio = useRef<HTMLAudioElement>(null)
   const mic = useMicrophone({
     onFrame: sendAudio,
@@ -71,23 +74,12 @@ export default function App() {
   const fields = FIELD_LABELS[displayLanguage]
   const done = FIELD_KEYS.filter((key) => isSlotVerified(session.slots[key])).length
   const firstMissing = FIELD_KEYS.findIndex((key) => !isSlotVerified(session.slots[key]))
-  const question = session.consentState === 'awaiting'
-    ? copy.consentQuestion
-    : session.consentState === 'no'
-      ? copy.consentNo
-      : session.consentState === 'unrecognized'
-        ? copy.consentUnrecognized
-        : session.followup || (done === 0
-          ? copy.initialQuestion
-          : firstMissing >= 0
-            ? FIELD_QUESTIONS[displayLanguage][firstMissing]
-            : copy.allDetailsCollected)
-  const currentQuestion = question || copy.initialQuestion
+  const currentQuestion = session.followup
   const sample = session.mode === 'MOCK_REPLAY'
   const waveform = sample
     ? session.signalLevels
     : mic.live ? mic.levels : EMPTY_WAVEFORM
-  const canUseMicrophone = session.online && session.mode === 'LIVE'
+  const canUseMicrophone = session.online && session.mode === 'LIVE' && !session.serviceUnavailable
   const detectedLanguageLabel =
     session.detectedLanguage === 'kn-IN' || session.detectedLanguage === 'en-IN' || session.detectedLanguage === 'hi-IN'
       ? LANGUAGE_LABELS[session.detectedLanguage]
@@ -96,11 +88,14 @@ export default function App() {
   const lastEvent = session.events[session.events.length - 1]
   const uanMessage = lastEvent?.type === 'uan_result' ? session.message : ''
   const serviceMessage = lastEvent?.type === 'error'
-    ? session.message || copy.apiError
+    ? mode === 'studio'
+      ? String(lastEvent.engineer_message ?? session.message ?? copy.apiError)
+      : copy.apiError
     : lastEvent?.type === 'uan_result' || lastEvent?.type === 'timbre_audio_unavailable'
       ? ''
-      : session.message
+      : mode === 'studio' ? session.message : ''
   const timbreNotice = session.timbreUnavailable ? copy.timbreUnavailable : ''
+  const workerError = mic.error || lastEvent?.type === 'error' || Boolean(serviceMessage)
 
   useEffect(() => {
     document.documentElement.dataset.theme = dark ? 'dark' : 'light'
@@ -111,6 +106,18 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem('shramik:view-mode', mode)
   }, [mode])
+
+  useEffect(() => {
+    const viewport = studioViewportRef.current
+    if (!viewport) return
+    const updateScale = () => {
+      setStudioScale(Math.min(viewport.clientWidth / STUDIO_WIDTH, viewport.clientHeight / STUDIO_HEIGHT, 1))
+    }
+    updateScale()
+    const observer = new ResizeObserver(updateScale)
+    observer.observe(viewport)
+    return () => observer.disconnect()
+  }, [])
 
   useEffect(() => {
     if (readAloud) {
@@ -164,8 +171,14 @@ export default function App() {
     if (mic.live) {
       setWorkerPhase('thinking')
       mic.stop()
+    } else {
+      if (session.mode === 'LIVE') {
+        const passcode = window.prompt('Enter the LIVE access passcode')
+        if (!passcode) return
+        send({ type: 'authenticate_live', passcode })
+      }
+      void mic.start(noiseLevel)
     }
-    else void mic.start(noiseLevel)
   }
   const changeNoiseLevel = (value: number) => {
     setNoiseLevel(value)
@@ -188,13 +201,12 @@ export default function App() {
 
   if (mode === 'studio') {
     return (
-      <main className={`${styles.app} ${styles.studioApp}`}>
-        <div className={styles.studioUnsupported}>
-          <strong>{copy.studioViewportTitle}</strong>
-          <span>{copy.studioViewportHint}</span>
-          <button type="button" onClick={() => setMode('worker')}>{copy.switchToWorker}</button>
-        </div>
-        <div className={styles.studioCanvas}>
+      <main ref={studioViewportRef} className={`${styles.app} ${styles.studioApp}`}>
+        <div
+          className={styles.studioFrame}
+          style={{ width: `${STUDIO_WIDTH * studioScale}px`, height: `${STUDIO_HEIGHT * studioScale}px` }}
+        >
+          <div className={styles.studioCanvas} style={{ transform: `scale(${studioScale})` }}>
           <Header
             mode={mode}
             onModeChange={setMode}
@@ -209,7 +221,7 @@ export default function App() {
             studio
             liveUsage={session.liveUsage}
           />
-          <section className={styles.studioGrid} aria-label={copy.studioMode}>
+            <section className={styles.studioGrid} aria-label={copy.studioMode}>
             <AudioLine
               className={styles.audioZone}
               copy={copy}
@@ -281,6 +293,7 @@ export default function App() {
                 slots={session.slots}
                 audit={session.audit}
                 sample={sample}
+                studio
                 arrearsDisplayValue={arrearsDisplayValue}
               />
               {session.audit && (
@@ -296,12 +309,15 @@ export default function App() {
                   pdfUrl={session.pdfUrl}
                   jsonUrl={session.jsonUrl}
                   onPrepare={prepareDraft}
+                  onDelete={session.deleteClaim}
+                  deletingClaim={session.deletingClaim}
                 />
               )}
               {timbreNotice && <p className={styles.paperError} role="status">{timbreNotice}</p>}
               {serviceMessage && <p className={styles.paperError} role="alert">{serviceMessage}</p>}
             </article>
-          </section>
+            </section>
+          </div>
         </div>
       </main>
     )
@@ -321,7 +337,6 @@ export default function App() {
         connectionState={session.connectionState}
         serviceMode={session.mode}
         copy={copy}
-        worker
       />
       <section className={styles.workerFlow} aria-label={copy.workerMode}>
         <div className={styles.workerQuestion}>
@@ -330,18 +345,25 @@ export default function App() {
               {session.connectionState === 'reconnecting' ? copy.reconnecting : copy.connecting}
             </p>
           )}
-          <p className={styles.workerContext}>{copy.wageClaimContext}</p>
-          <h1 lang={displayLanguage} aria-live="polite" aria-atomic="true">{currentQuestion}</h1>
+          {currentQuestion
+            ? <h1 lang={displayLanguage} aria-live="polite" aria-atomic="true">{currentQuestion}</h1>
+            : <p className={styles.workerCompletion} role="status">{copy.allDetailsCollected}</p>}
           <p className={styles.workerProgress}>{copy.progressValue(done, FIELD_KEYS.length)}</p>
           <div
-            className={styles.progressTrack}
+            className={styles.progressTicks}
             role="progressbar"
             aria-label={copy.progressLabel}
             aria-valuemin={0}
             aria-valuemax={FIELD_KEYS.length}
             aria-valuenow={done}
           >
-            <span style={{ width: `${done / FIELD_KEYS.length * 100}%` }} />
+            {FIELD_KEYS.map((key, index) => (
+              <span
+                className={index < done ? styles.progressTickDone : undefined}
+                key={key}
+                aria-hidden="true"
+              />
+            ))}
           </div>
         </div>
 
@@ -351,7 +373,7 @@ export default function App() {
           disabled={(!canUseMicrophone && !mic.live) || workerPhase === 'thinking'}
           onClick={toggleMicrophone}
           aria-label={mic.live ? copy.stopRecording : copy.speakAnswer}
-          data-state={mic.live ? 'listening' : workerPhase}
+          data-state={workerError ? 'error' : mic.live ? 'listening' : workerPhase}
         >
           <MicIcon />
         </button>
@@ -367,19 +389,26 @@ export default function App() {
         {sample && session.consentState !== 'awaiting'
           ? <p className={styles.workerMicHint}>{copy.sampleMicHint}</p>
           : session.consentState !== 'awaiting' && !mic.live && workerPhase === 'idle' && <p className={styles.workerMicHint}>{copy.micHint}</p>}
-        {sample && session.consentState !== 'awaiting' && (
-          <div className={styles.workerSample}>
-            <span>{copy.sampleDetails}</span>
-            <button type="button" disabled={!session.online} onClick={playSample}>{copy.playSample}</button>
-          </div>
-        )}
-        {session.mode === 'LIVE' && (
-          <div className={styles.workerSample}>
-            <span>{copy.replaySyntheticHint}</span>
-            <button type="button" disabled={!session.online || session.replayActive} onClick={() => send({ type: 'replay_recorded_call' })}>
-              {session.replayActive ? copy.replayActive : copy.replayRecordedCall}
-            </button>
-          </div>
+        {session.consentState !== 'awaiting' && (sample || session.mode === 'LIVE') && (
+          <details className={styles.demoMenu}>
+            <summary>{copy.demoMenu}</summary>
+            <div className={styles.demoContent}>
+              {sample && (
+                <>
+                  <p>{copy.sampleDetails}</p>
+                  <button type="button" disabled={!session.online} onClick={playSample}>{copy.playSample}</button>
+                </>
+              )}
+              {session.mode === 'LIVE' && (
+                <>
+                  <p>{copy.replaySyntheticHint}</p>
+                  <button type="button" disabled={!session.online || session.replayActive} onClick={() => send({ type: 'replay_recorded_call' })}>
+                    {session.replayActive ? copy.replayActive : copy.replayRecordedCall}
+                  </button>
+                </>
+              )}
+            </div>
+          </details>
         )}
         {session.audit && session.consentState === 'awaiting' && (
           <ConsentBar
@@ -394,6 +423,8 @@ export default function App() {
             pdfUrl={session.pdfUrl}
             jsonUrl={session.jsonUrl}
             onPrepare={prepareDraft}
+            onDelete={session.deleteClaim}
+            deletingClaim={session.deletingClaim}
             onConsentAnswer={session.online ? answerConsent : undefined}
             isSpeaking={workerPhase === 'speaking'}
             onSpeakingChange={(speaking) => setWorkerPhase((phase) => speaking ? 'speaking' : phase === 'speaking' ? 'idle' : phase)}
@@ -406,9 +437,19 @@ export default function App() {
           <p className={styles.workerNotice} role="status">{timbreNotice}</p>
         )}
         {serviceMessage && <p className={styles.workerError} role="alert">{serviceMessage}</p>}
+        {session.serviceUnavailable && (
+          <p className={styles.workerError} role="alert">
+            Voice service unavailable. Continue with typed answers; live-collected details are retained.
+          </p>
+        )}
+        {session.audit?.draft_warning && (
+          <p className={styles.workerNotice} role="alert">
+            Drafting incomplete: {session.audit.draft_warning}
+          </p>
+        )}
 
         {session.consentState !== 'awaiting' && <div className={styles.workerTyping}>
-          {!showTyping ? (
+          {!showTyping && !session.serviceUnavailable ? (
             <button className={styles.textToggle} type="button" onClick={() => setShowTyping(true)}>{copy.typeInstead}</button>
           ) : (
             <form className={styles.workerTextEntry} onSubmit={submitAnswer}>
@@ -451,6 +492,8 @@ export default function App() {
             pdfUrl={session.pdfUrl}
             jsonUrl={session.jsonUrl}
             onPrepare={prepareDraft}
+            onDelete={session.deleteClaim}
+            deletingClaim={session.deletingClaim}
             onConsentAnswer={session.online ? answerConsent : undefined}
             isSpeaking={workerPhase === 'speaking'}
             onSpeakingChange={(speaking) => setWorkerPhase((phase) => speaking ? 'speaking' : phase === 'speaking' ? 'idle' : phase)}

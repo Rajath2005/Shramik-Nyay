@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="820" viewBox="0 0 1400 820" role="img" aria-labelledby="title desc">
+  <title id="title">Shramik-Nyay system architecture</title>
+  <desc id="desc">The public React browser connects through a secure edge to a FastAPI backend. The backend routes either to local replay or live Gnani services and creates deterministic claim artifacts.</desc>
+  <defs>
+    <marker id="arrow-blue" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto"><path d="M0 0L10 4L0 8Z" fill="#2487c9"/></marker>
+    <marker id="arrow-orange" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto"><path d="M0 0L10 4L0 8Z" fill="#d96b27"/></marker>
+    <style>
+      .title{font:700 30px Arial,sans-serif;fill:#17232d}.sub{font:16px Arial,sans-serif;fill:#52606d}
+      .head{font:700 17px Arial,sans-serif}.body{font:15px Arial,sans-serif}.small{font:13px Arial,sans-serif}
+      .box{stroke-width:2}.blue{fill:#e8f4ff;stroke:#2487c9}.green{fill:#eaf8ef;stroke:#2f9e62}
+      .amber{fill:#fff7e2;stroke:#d99a18}.purple{fill:#f1edff;stroke:#7654c7}.orange{fill:#fff0e6;stroke:#d96b27}.gray{fill:#f2f5f7;stroke:#66788a}
+      .line{fill:none;stroke:#2487c9;stroke-width:2.5;marker-end:url(#arrow-blue)}.optional{fill:none;stroke:#d96b27;stroke-width:2.5;stroke-dasharray:8 7;marker-end:url(#arrow-orange)}
+    </style>
+  </defs>
+  <rect width="1400" height="820" fill="#fff"/>
+  <text x="60" y="58" class="title">Shramik-Nyay | System architecture</text>
+  <text x="60" y="88" class="sub">Replay-first voice-led wage redressal with an isolated, guarded live provider path</text>
+  <rect x="60" y="190" width="270" height="190" rx="12" class="box blue"/>
+  <text x="195" y="225" text-anchor="middle" class="head" fill="#17324d">PUBLIC BROWSER</text>
+  <text x="195" y="262" text-anchor="middle" class="body" fill="#17324d">React + Vite</text><text x="195" y="288" text-anchor="middle" class="body" fill="#17324d">Worker / Studio modes</text><text x="195" y="314" text-anchor="middle" class="body" fill="#17324d">Microphone + transcript</text><text x="195" y="340" text-anchor="middle" class="body" fill="#17324d">Draft download</text>
+  <rect x="420" y="190" width="220" height="190" rx="12" class="box gray"/>
+  <text x="530" y="225" text-anchor="middle" class="head" fill="#263746">SECURE EDGE</text>
+  <text x="530" y="262" text-anchor="middle" class="body" fill="#263746">HTTPS / WSS</text><text x="530" y="288" text-anchor="middle" class="body" fill="#263746">CORS allow-list</text><text x="530" y="314" text-anchor="middle" class="body" fill="#263746">Microphone policy</text>
+  <rect x="730" y="160" width="340" height="250" rx="12" class="box green"/>
+  <text x="900" y="198" text-anchor="middle" class="head" fill="#173d29">FASTAPI BACKEND</text>
+  <text x="900" y="238" text-anchor="middle" class="body" fill="#173d29">WebSocket session orchestration</text><text x="900" y="267" text-anchor="middle" class="body" fill="#173d29">HTTP health + claim downloads</text><text x="900" y="296" text-anchor="middle" class="body" fill="#173d29">LIVE passcode + IP rate limit</text><text x="900" y="325" text-anchor="middle" class="body" fill="#173d29">Server-only provider credentials</text><text x="900" y="354" text-anchor="middle" class="body" fill="#173d29">Per-session credit caps</text>
+  <rect x="90" y="555" width="260" height="160" rx="12" class="box purple"/>
+  <text x="220" y="592" text-anchor="middle" class="head" fill="#34205f">MOCK_REPLAY</text><text x="220" y="628" text-anchor="middle" class="body" fill="#34205f">Default public mode</text><text x="220" y="656" text-anchor="middle" class="body" fill="#34205f">Synthetic profile + PCM fixture</text><text x="220" y="684" text-anchor="middle" class="body" fill="#34205f">No provider credits</text>
+  <rect x="445" y="555" width="260" height="160" rx="12" class="box amber"/>
+  <text x="575" y="592" text-anchor="middle" class="head" fill="#4d3a0c">LOCAL DOMAIN LOGIC</text><text x="575" y="628" text-anchor="middle" class="body" fill="#4d3a0c">Deterministic wage arithmetic</text><text x="575" y="656" text-anchor="middle" class="body" fill="#4d3a0c">Statutory checks</text><text x="575" y="684" text-anchor="middle" class="body" fill="#4d3a0c">Language + Form A draft</text>
+  <rect x="800" y="555" width="260" height="160" rx="12" class="box gray"/>
+  <text x="930" y="592" text-anchor="middle" class="head" fill="#263746">EPHEMERAL CLAIMS</text><text x="930" y="628" text-anchor="middle" class="body" fill="#263746">backend/claims/</text><text x="930" y="656" text-anchor="middle" class="body" fill="#263746">PDF + JSON artifacts</text><text x="930" y="684" text-anchor="middle" class="body" fill="#263746">TTL cleanup loop</text>
+  <rect x="1150" y="235" width="200" height="190" rx="12" class="box orange"/>
+  <text x="1250" y="272" text-anchor="middle" class="head" fill="#572610">GNANI SERVICES</text><text x="1250" y="310" text-anchor="middle" class="body" fill="#572610">Prisma v3 STT</text><text x="1250" y="338" text-anchor="middle" class="body" fill="#572610">Evon v3.3 LLM</text><text x="1250" y="366" text-anchor="middle" class="body" fill="#572610">Timbre v3 TTS</text><text x="1250" y="394" text-anchor="middle" class="small" fill="#572610">LIVE only</text>
+  <path d="M330 285H420" class="line"/>
+  <path d="M640 285H730" class="line"/>
+  <path d="M900 410V555" class="line"/>
+  <path d="M1035 410V455H930V555" class="line"/>
+  <path d="M780 410V455H220V555" class="line"/>
+  <path d="M1070 285H1090V455H1250V500" class="optional"/>
+  <text x="520" y="445" text-anchor="middle" class="small" fill="#7654c7">replay path</text>
+  <text x="1165" y="445" text-anchor="middle" class="small" fill="#d96b27">LIVE only</text>
+</svg>

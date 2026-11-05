@@ -15,6 +15,8 @@ type Props = {
   pdfUrl: string | null
   jsonUrl: string | null
   onPrepare: () => void
+  onDelete: () => void
+  deletingClaim: boolean
   onConsentAnswer?: (accepted: boolean) => void
   isSpeaking?: boolean
   onSpeakingChange?: (speaking: boolean) => void
@@ -38,6 +40,8 @@ export default function ConsentBar({
   pdfUrl,
   jsonUrl,
   onPrepare,
+  onDelete,
+  deletingClaim,
   onConsentAnswer,
   isSpeaking = false,
   onSpeakingChange,
@@ -161,6 +165,9 @@ export default function ConsentBar({
             <>
               <a href={pdfUrl} download>{copy.downloadPdf}</a>
               <a className={styles.secondary} href={jsonUrl} download>{copy.downloadJson}</a>
+              <button type="button" className={styles.danger} onClick={onDelete} disabled={deletingClaim}>
+                {deletingClaim ? copy.deletingClaim : copy.deleteClaim}
+              </button>
             </>
           ) : (
             <button type="button" disabled={state !== 'yes'} onClick={onPrepare}>

@@ -18,6 +18,8 @@ export type Audit = {
   form_a_clauses: string[]
   timbre_v3_readback_script: string
   notice: string
+  drafting_incomplete?: boolean
+  draft_warning?: string
 }
 export type Ev = { type: string; [key: string]: unknown }
 export type AudioTelemetry = {
@@ -79,6 +81,8 @@ export function useSession() {
   const [message, setMessage] = useState('')
   const [liveUsage, setLiveUsage] = useState<LiveUsage | null>(null)
   const [replayActive, setReplayActive] = useState(false)
+  const [deletingClaim, setDeletingClaim] = useState(false)
+  const [serviceUnavailable, setServiceUnavailable] = useState(false)
 
   useEffect(() => {
     let closed = false
@@ -88,7 +92,7 @@ export function useSession() {
       switch (e.type) {
         case 'session_started':
           setMode(String(e.mode)); setSlots({}); setAudit(null); setReasoning(null); setPdfUrl(null); setJsonUrl(null)
-          setHeard([]); setFollowup(''); setMessage(''); setTranscript(''); setDetectedLanguage('')
+          setHeard([]); setFollowup(String(e.followup ?? '')); setMessage(''); setTranscript(''); setDetectedLanguage('')
           setEffectiveLanguage('')
           setSignalLevels([]); setTelemetry(null); setReadback(''); setBiasWords([]); setLatency(null)
           setBiasSettingsUpdated(false); setBiasBoostFailed(false); setPipelineLatencies({})
@@ -97,6 +101,8 @@ export function useSession() {
           setConsentState('not_requested'); setVoiceConsentRecorded(false)
           setLiveUsage(null)
           setReplayActive(false)
+          setDeletingClaim(false)
+          setServiceUnavailable(false)
           break
         case 'credit_usage':
           if (e.usage && typeof e.usage === 'object') {
@@ -129,7 +135,7 @@ export function useSession() {
             })
           } else {
             setReasoning(null)
-            setMessage('Evon reasoning metadata was missing from the Stage B event.')
+            setMessage('The review details were not returned. You can still continue with the draft.')
           }
           break
         case 'prisma_transcript':
@@ -230,7 +236,11 @@ export function useSession() {
           break
         case 'timbre_audio_unavailable':
           setTimbreUnavailable(true)
-          setMessage(`Timbre read-back unavailable: ${String(e.message ?? 'No audio was returned.')}`)
+          setMessage(`Read-aloud audio is unavailable: ${String(e.message ?? 'No audio was returned.')}`)
+          break
+        case 'service_unavailable':
+          setServiceUnavailable(true)
+          setMessage(String(e.message ?? 'Voice service unavailable. Continue by typing your answer.'))
           break
         case 'consent_status':
           if (
@@ -303,12 +313,30 @@ export function useSession() {
   const sendAudio = useCallback((buf: ArrayBuffer) => {
     if (ws.current?.readyState === WebSocket.OPEN) ws.current.send(buf)
   }, [])
+  const deleteClaim = useCallback(async () => {
+    const claimUrl = pdfUrl ?? jsonUrl
+    if (!claimUrl || deletingClaim) return
+    setDeletingClaim(true)
+    try {
+      const response = await fetch(claimUrl.replace(/\/form-a\.(pdf|json)$/, ''), { method: 'DELETE' })
+      if (!response.ok) throw new Error('Claim could not be deleted.')
+      setPdfUrl(null)
+      setJsonUrl(null)
+      setMessage('')
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Claim could not be deleted.')
+    } finally {
+      setDeletingClaim(false)
+    }
+  }, [deletingClaim, jsonUrl, pdfUrl])
 
   return {
     online, connectionState, mode, slots, followup, audit, reasoning, pdfUrl, jsonUrl, heard, events, biasWords,
     biasSettingsUpdated, biasBoostFailed, pipelineLatencies,
     latency, signalLevels, telemetry, transcript, detectedLanguage, effectiveLanguage,
     languagePreference, setLanguagePreference, readback, timbreAudioUrl,
-    timbreUnavailable, consentState, voiceConsentRecorded, message, liveUsage, replayActive, send, sendAudio,
+    timbreUnavailable, consentState, voiceConsentRecorded, message, liveUsage, replayActive, deletingClaim,
+    serviceUnavailable,
+    deleteClaim, send, sendAudio,
   }
 }

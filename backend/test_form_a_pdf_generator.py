@@ -17,6 +17,19 @@ def _normalized_pdf_text(path: Path) -> str:
 
 
 class FormAPdfGeneratorTests(unittest.TestCase):
+    def test_pdf_always_marks_not_filed_without_synthetic_label_for_live_data(self):
+        with TemporaryDirectory() as output_directory:
+            path = compile_form_a(
+                FormAClaimSlots(worker_name="Live worker"),
+                {"principal_arrears_inr": 0},
+                Path(output_directory),
+                language="en-IN",
+            )
+            text = _normalized_pdf_text(path)
+
+        self.assertIn("DRAFT - not filed", text)
+        self.assertNotIn("synthetic demo data", text)
+
     def test_pdf_extracts_hindi_kannada_and_english_text(self):
         cases = {
             "hi-IN": (
@@ -108,6 +121,7 @@ class FormAPdfGeneratorTests(unittest.TestCase):
                     {**audit, "form_a_clauses": clauses},
                     Path(output_directory),
                     language=language,
+                    synthetic_demo_data=True,
                 )
                 text = _normalized_pdf_text(path)
 
@@ -120,7 +134,7 @@ class FormAPdfGeneratorTests(unittest.TestCase):
             self.assertIn(missing_address, text)
             self.assertIn(signature, text)
             self.assertIn(delay_labels[language], text)
-            self.assertIn("DRAFT - synthetic demo data", text)
+            self.assertIn("DRAFT - not filed - synthetic demo data", text)
             self.assertIn("Demo contractor, 9000000000", text)
             self.assertIn("Demo principal employer", text)
             self.assertIn("2026-09-01 - 2026-09-18", text)

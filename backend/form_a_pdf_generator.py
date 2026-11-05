@@ -26,7 +26,7 @@ from language_support import resolve_language
 from legal_rules import NOTICE
 
 PAGE_MARGIN = 42
-WATERMARK = "DRAFT - synthetic demo data"
+WATERMARK = "DRAFT - not filed"
 FONT_FILES = {
     "NotoSansDevanagari": "NotoSansDevanagari.ttf",
     "NotoSansKannada": "NotoSansKannada.ttf",
@@ -238,13 +238,14 @@ def _field_value(
     return str(value) if value is not None else labels["not_provided"]
 
 
-def _watermark(canvas, _document) -> None:
+def _watermark(canvas, _document, synthetic_demo_data: bool = False) -> None:
     canvas.saveState()
     canvas.setFillColor(colors.HexColor("#D6DAE0"))
     canvas.setFont("Helvetica-Bold", 30)
     canvas.translate(A4[0] / 2, A4[1] / 2)
     canvas.rotate(32)
-    canvas.drawCentredString(0, 0, WATERMARK)
+    watermark = WATERMARK + (" - synthetic demo data" if synthetic_demo_data else "")
+    canvas.drawCentredString(0, 0, watermark)
     canvas.restoreState()
 
 
@@ -262,6 +263,7 @@ def compile_form_a(
     output_directory: Path,
     voice_consent_audio: bytes | None = None,
     language: str = "hi-IN",
+    synthetic_demo_data: bool = False,
 ) -> Path:
     locale = resolve_language(language)
     labels = LABELS[locale]
@@ -421,7 +423,7 @@ def compile_form_a(
     )
 
     def draw_page(canvas, doc) -> None:
-        _watermark(canvas, doc)
+        _watermark(canvas, doc, synthetic_demo_data)
         notice.wrap(doc.width, doc.bottomMargin)
         notice.drawOn(canvas, doc.leftMargin, PAGE_MARGIN - 7)
         _page_number(canvas, doc)

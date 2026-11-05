@@ -1,0 +1,43 @@
+<mxfile host="app.diagrams.net" modified="2026-11-05T07:15:00.000Z" agent="Shramik-Nyay" version="24.7.17">
+  <diagram id="system-architecture" name="System architecture">
+    <mxGraphModel dx="1600" dy="1000" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1600" pageHeight="1000" math="0" shadow="0">
+      <root>
+        <mxCell id="0"/>
+        <mxCell id="1" parent="0"/>
+        <mxCell id="title" value="Shramik-Nyay | System architecture" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontColor=#17232d;fontSize=26;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="60" y="35" width="600" height="40" as="geometry"/>
+        </mxCell>
+        <mxCell id="subtitle" value="Voice-led wage redressal: replay-first UX with an isolated live provider path" style="text;html=1;strokeColor=none;fillColor=none;align=left;fontColor=#52606d;fontSize=15;" vertex="1" parent="1">
+          <mxGeometry x="60" y="75" width="900" height="30" as="geometry"/>
+        </mxCell>
+        <mxCell id="browser" value="&lt;b&gt;PUBLIC BROWSER&lt;/b&gt;&lt;br&gt;&lt;br&gt;React + Vite&lt;br&gt;Worker mode / Studio mode&lt;br&gt;Microphone capture&lt;br&gt;Transcript + draft download" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e8f4ff;strokeColor=#2487c9;strokeWidth=2;fontColor=#17324d;fontSize=16;spacing=14;" vertex="1" parent="1">
+          <mxGeometry x="70" y="250" width="270" height="190" as="geometry"/>
+        </mxCell>
+        <mxCell id="edge" value="&lt;b&gt;SECURE EDGE&lt;/b&gt;&lt;br&gt;&lt;br&gt;HTTPS / WSS&lt;br&gt;CORS origin allow-list&lt;br&gt;Browser microphone policy" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f2f5f7;strokeColor=#66788a;strokeWidth=2;fontColor=#263746;fontSize=16;spacing=14;" vertex="1" parent="1">
+          <mxGeometry x="430" y="250" width="220" height="190" as="geometry"/>
+        </mxCell>
+        <mxCell id="backend" value="&lt;b&gt;FASTAPI BACKEND&lt;/b&gt;&lt;br&gt;&lt;br&gt;WebSocket session orchestration&lt;br&gt;HTTP health + claim downloads&lt;br&gt;LIVE passcode gate&lt;br&gt;Per-IP connection limit&lt;br&gt;Server-only provider credentials" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#eaf8ef;strokeColor=#2f9e62;strokeWidth=2;fontColor=#173d29;fontSize=16;spacing=14;" vertex="1" parent="1">
+          <mxGeometry x="740" y="205" width="330" height="280" as="geometry"/>
+        </mxCell>
+        <mxCell id="rules" value="&lt;b&gt;LOCAL DOMAIN LOGIC&lt;/b&gt;&lt;br&gt;&lt;br&gt;Deterministic wage arithmetic&lt;br&gt;Legal checks&lt;br&gt;Language support&lt;br&gt;Form A PDF + SAMADHAN draft JSON" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff7e2;strokeColor=#d99a18;strokeWidth=2;fontColor=#4d3a0c;fontSize=16;spacing=14;" vertex="1" parent="1">
+          <mxGeometry x="740" y="590" width="330" height="190" as="geometry"/>
+        </mxCell>
+        <mxCell id="mock" value="&lt;b&gt;MOCK_REPLAY&lt;/b&gt;&lt;br&gt;&lt;br&gt;Default public mode&lt;br&gt;Synthetic profile + PCM fixture&lt;br&gt;No external provider calls&lt;br&gt;No provider credit usage" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f1edff;strokeColor=#7654c7;strokeWidth=2;fontColor=#34205f;fontSize=16;spacing=14;" vertex="1" parent="1">
+          <mxGeometry x="1110" y="205" width="270" height="190" as="geometry"/>
+        </mxCell>
+        <mxCell id="providers" value="&lt;b&gt;GNANI PROVIDERS&lt;/b&gt;&lt;br&gt;&lt;br&gt;LIVE only&lt;br&gt;Prisma v3 STT&lt;br&gt;Evon v3.3 LLM&lt;br&gt;Timbre v3 TTS&lt;br&gt;Per-session credit caps" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff0e6;strokeColor=#d96b27;strokeWidth=2;fontColor=#572610;fontSize=16;spacing=14;" vertex="1" parent="1">
+          <mxGeometry x="1110" y="500" width="270" height="220" as="geometry"/>
+        </mxCell>
+        <mxCell id="claims" value="&lt;b&gt;EPHEMERAL CLAIMS&lt;/b&gt;&lt;br&gt;&lt;br&gt;backend/claims/&lt;br&gt;PDF + JSON artifacts&lt;br&gt;TTL cleanup loop&lt;br&gt;Optional consent audio" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f2f5f7;strokeColor=#66788a;strokeWidth=2;fontColor=#263746;fontSize=16;spacing=14;" vertex="1" parent="1">
+          <mxGeometry x="340" y="590" width="270" height="190" as="geometry"/>
+        </mxCell>
+        <mxCell id="a1" value="HTTPS / WSS" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#2487c9;strokeWidth=2;endArrow=block;endFill=1;fontColor=#17324d;" edge="1" parent="1" source="browser" target="edge"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="a2" value="session events" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#2487c9;strokeWidth=2;endArrow=block;endFill=1;fontColor=#17324d;" edge="1" parent="1" source="edge" target="backend"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="a3" value="replay path" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#7654c7;strokeWidth=2;dashed=1;endArrow=block;endFill=1;fontColor=#34205f;exitX=0;exitY=0.7;entryX=0.5;entryY=1;" edge="1" parent="1" source="backend" target="mock"><mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="700" y="520"/><mxPoint x="1245" y="520"/></Array></mxGeometry></mxCell>
+        <mxCell id="a4" value="LIVE only" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#d96b27;strokeWidth=2;dashed=1;endArrow=block;endFill=1;fontColor=#572610;exitX=1;exitY=0.3;entryX=0.5;entryY=0;" edge="1" parent="1" source="backend" target="providers"><mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="1090" y="285"/><mxPoint x="1090" y="455"/><mxPoint x="1245" y="455"/></Array></mxGeometry></mxCell>
+        <mxCell id="a5" value="arithmetic + checks" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#d99a18;strokeWidth=2;endArrow=block;endFill=1;fontColor=#4d3a0c;exitX=0.5;exitY=1;entryX=0.5;entryY=0;" edge="1" parent="1" source="backend" target="rules"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="a6" value="write / download" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#66788a;strokeWidth=2;endArrow=block;endFill=1;fontColor=#263746;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" edge="1" parent="1" source="rules" target="claims"><mxGeometry relative="1" as="geometry"/></mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

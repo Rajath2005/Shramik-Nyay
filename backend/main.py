@@ -1,20 +1,24 @@
 from __future__ import annotations
 
 import asyncio
+import hmac
 import json
 import os
+import shutil
 import time
 import uuid
+from collections import defaultdict, deque
 from pathlib import Path
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 
 from audio_pacer import (
     BIAS_SCORE,
     PRISMA_SEED_WORDS,
+    PrismaStreamError,
     PrismaRealtimeStreamer,
     sanitize_bias_words,
 )
@@ -40,10 +44,60 @@ load_dotenv(Path(__file__).with_name(".env"))
 CLAIMS_DIR = Path(__file__).with_name("claims")
 REPLAY_FIXTURE = Path(__file__).with_name("fixtures") / "replay_recorded_call.pcm"
 MAX_CONSENT_AUDIO_BYTES = 1_000_000
+CLAIM_TTL_SECONDS = max(0, int(os.getenv("SHRAMIK_CLAIM_TTL_SECONDS", "86400")))
+STORE_CONSENT_AUDIO = os.getenv("SHRAMIK_STORE_CONSENT_AUDIO", "false").lower() in {"1", "true", "yes"}
+LIVE_PASSCODE = os.getenv("SHRAMIK_LIVE_PASSCODE", "")
+RATE_LIMIT_WINDOW_SECONDS = max(1, int(os.getenv("SHRAMIK_WS_RATE_WINDOW_SECONDS", "60")))
+RATE_LIMIT_MAX_CONNECTIONS = max(1, int(os.getenv("SHRAMIK_WS_RATE_MAX_CONNECTIONS", "20")))
+_connection_attempts: dict[str, deque[float]] = defaultdict(deque)
+_claim_cleanup_task: asyncio.Task | None = None
 
 app = FastAPI(title="Shramik-Nyay API", version="0.2.0")
-app.add_middleware(CORSMiddleware, allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+cors_origins = [origin.strip() for origin in os.getenv(
+    "SHRAMIK_CORS_ORIGINS",
+    "http://localhost:5173,http://127.0.0.1:5173",
+).split(",") if origin.strip()]
+app.add_middleware(CORSMiddleware, allow_origins=cors_origins,
                    allow_methods=["*"], allow_headers=["*"])
+
+
+def _claim_directory(claim_id: str) -> Path:
+    if not claim_id or Path(claim_id).name != claim_id or claim_id in {".", ".."}:
+        raise HTTPException(400, "Invalid claim id")
+    return CLAIMS_DIR / claim_id
+
+
+def purge_expired_claims(now: float | None = None) -> None:
+    if CLAIM_TTL_SECONDS == 0 or not CLAIMS_DIR.is_dir():
+        return
+    current_time = time.time() if now is None else now
+    for path in CLAIMS_DIR.iterdir():
+        if path.is_dir() and current_time - path.stat().st_mtime >= CLAIM_TTL_SECONDS:
+            shutil.rmtree(path)
+
+
+@app.on_event("startup")
+async def remove_expired_claims() -> None:
+    global _claim_cleanup_task
+    await asyncio.to_thread(purge_expired_claims)
+    if CLAIM_TTL_SECONDS:
+        _claim_cleanup_task = asyncio.create_task(_claim_cleanup_loop())
+
+
+async def _claim_cleanup_loop() -> None:
+    interval = max(60, min(CLAIM_TTL_SECONDS, 3600))
+    while True:
+        await asyncio.sleep(interval)
+        await asyncio.to_thread(purge_expired_claims)
+
+
+@app.on_event("shutdown")
+async def stop_claim_cleanup() -> None:
+    global _claim_cleanup_task
+    if _claim_cleanup_task:
+        _claim_cleanup_task.cancel()
+        await asyncio.gather(_claim_cleanup_task, return_exceptions=True)
+        _claim_cleanup_task = None
 
 
 @app.get("/health")
@@ -59,7 +113,8 @@ async def demo_profile(uan: str) -> dict:
 
 @app.get("/api/claims/{claim_id}/form-a.pdf")
 async def download_form_a(claim_id: str):
-    path = CLAIMS_DIR / Path(claim_id).name / "form-a-claim.pdf"
+    await asyncio.to_thread(purge_expired_claims)
+    path = _claim_directory(claim_id) / "form-a-claim.pdf"
     if not path.exists():
         raise HTTPException(404, "Claim not found")
     return FileResponse(path, media_type="application/pdf", filename="form-a-claim.pdf")
@@ -67,10 +122,21 @@ async def download_form_a(claim_id: str):
 
 @app.get("/api/claims/{claim_id}/form-a.json")
 async def download_samadhan_mapped_draft_json(claim_id: str):
-    path = CLAIMS_DIR / Path(claim_id).name / "samadhan-mapped-draft.json"
+    await asyncio.to_thread(purge_expired_claims)
+    path = _claim_directory(claim_id) / "samadhan-mapped-draft.json"
     if not path.exists():
         raise HTTPException(404, "Claim not found")
     return FileResponse(path, media_type="application/json", filename="samadhan-mapped-draft.json")
+
+
+@app.delete("/api/claims/{claim_id}", status_code=204, response_class=Response)
+async def delete_claim(claim_id: str) -> Response:
+    await asyncio.to_thread(purge_expired_claims)
+    claim_directory = _claim_directory(claim_id)
+    if not claim_directory.is_dir():
+        raise HTTPException(404, "Claim not found")
+    await asyncio.to_thread(shutil.rmtree, claim_directory)
+    return Response(status_code=204)
 
 
 class Session:
@@ -81,6 +147,7 @@ class Session:
         self.mode = os.getenv("SHRAMIK_MODE", "MOCK_REPLAY").upper()
         self.live_guard = LiveCreditGuard()
         self.key = os.getenv("GNANI_API_KEY", "")
+        self.live_authorized = False
         base_url = (os.getenv("GNANI_API_BASE_URL") or "https://api.vachana.ai").rstrip("/")
         endpoint = os.getenv(
             "EVON_ENDPOINT_URL",
@@ -106,6 +173,7 @@ class Session:
         self.consent_audio_buffer = bytearray()
         self.consent_audio_overflowed = False
         self.voice_consent_audio: bytes | None = None
+        self.synthetic_data = False
 
     @property
     def active_language(self) -> str:
@@ -159,30 +227,35 @@ class Session:
             result = await operation()
         except LiveCallBlocked:
             raise
-        except Exception:
-            if self.live_guard.record_failure(provider):
-                self.mode = "MOCK_REPLAY"
-                self.engine.mode = self.mode
-                await self.send({
-                    "type": "notice",
-                    "message": f"{provider.title()} failed twice. Switched to MOCK_REPLAY so the demo can continue.",
-                })
+        except Exception as error:
+            repeated = self.live_guard.record_failure(provider)
+            await self.send({
+                "type": "service_unavailable",
+                "provider": provider,
+                "repeated": repeated,
+                "message": "Voice service unavailable. Continue by typing your answer.",
+                "engineer_message": f"{provider.title()} live call failed: {error}",
+            })
             raise
         else:
             if isinstance(result, dict) and result.get("live_call_failed"):
-                if self.live_guard.record_failure(provider):
-                    self.mode = "MOCK_REPLAY"
-                    self.engine.mode = self.mode
-                    await self.send({
-                        "type": "notice",
-                        "message": f"{provider.title()} failed twice. Switched to MOCK_REPLAY so the demo can continue.",
-                    })
+                repeated = self.live_guard.record_failure(provider)
+                await self.send({
+                    "type": "service_unavailable",
+                    "provider": provider,
+                    "repeated": repeated,
+                    "message": "Voice service unavailable. Continue by typing your answer.",
+                })
             else:
                 self.live_guard.record_success(provider)
             return result
 
     async def run(self) -> None:
-        await self.send({"type": "session_started", "mode": self.mode})
+        await self.send({
+            "type": "session_started",
+            "mode": self.mode,
+            "followup": followup_for("worker_name", self.active_language),
+        })
         await self.send_credit_usage()
         try:
             while True:
@@ -197,6 +270,8 @@ class Session:
                     except Exception as error:               # one bad command must not kill the call
                         await self.send({"type": "error", "message": str(error)})
         finally:
+            if self.streamer:
+                await self.streamer.close()
             tasks = [task for task in self._transcript_tasks]
             if self.stt_task:
                 tasks.append(self.stt_task)
@@ -209,7 +284,7 @@ class Session:
 
     async def on_audio(self, chunk: bytes) -> None:
         self.frames += 1
-        if self.awaiting_consent and not self.consent_audio_overflowed:
+        if STORE_CONSENT_AUDIO and self.awaiting_consent and not self.consent_audio_overflowed:
             if len(self.consent_audio_buffer) + len(chunk) <= MAX_CONSENT_AUDIO_BYTES:
                 self.consent_audio_buffer.extend(chunk)
             else:
@@ -229,6 +304,26 @@ class Session:
         except json.JSONDecodeError:
             cmd = {"type": text}
         kind = cmd.get("type")
+        if kind == "authenticate_live":
+            supplied = cmd.get("passcode")
+            if not LIVE_PASSCODE:
+                return await self.send({
+                    "type": "error",
+                    "message": "LIVE access is disabled until SHRAMIK_LIVE_PASSCODE is configured.",
+                })
+            if not isinstance(supplied, str) or not hmac.compare_digest(supplied, LIVE_PASSCODE):
+                self.live_authorized = False
+                return await self.send({"type": "error", "message": "Invalid LIVE passcode."})
+            self.live_authorized = True
+            return await self.send({"type": "live_authenticated"})
+        if self.mode == "LIVE" and kind in {"start_mic", "replay_recorded_call"}:
+            if not LIVE_PASSCODE:
+                return await self.send({
+                    "type": "error",
+                    "message": "LIVE access is disabled until SHRAMIK_LIVE_PASSCODE is configured.",
+                })
+            if not self.live_authorized:
+                return await self.send({"type": "error", "message": "Authenticate with the LIVE passcode first."})
         if kind == "demo":
             await self.run_demo()
         elif kind == "replay_recorded_call":
@@ -240,6 +335,10 @@ class Session:
         elif kind == "stop_mic":
             if self.streamer:
                 await self.streamer.commit_and_close()
+                if self.stt_task:
+                    await asyncio.gather(self.stt_task, return_exceptions=True)
+                self.stt_task = None
+                self.streamer = None
         elif kind == "utterance":
             await self.on_utterance(cmd.get("text", ""))
         elif kind == "uan":
@@ -256,6 +355,13 @@ class Session:
         self.detected_language = None
         self.last_utterance = ""
         await self.send_language_status()
+        missing = missing_fields(self.slots)
+        await self.send({
+            "type": "evon_stage_a",
+            "slots": self.slots.model_dump(),
+            "missing_fields": missing,
+            "followup": followup_for(missing[0], self.active_language) if missing else "",
+        })
 
     async def start_stt(self) -> None:
         if self.mode != "LIVE":
@@ -288,6 +394,7 @@ class Session:
             return await self.send({"type": "notice", "message": "Stop the active microphone stream first."})
         if not REPLAY_FIXTURE.is_file():
             raise RuntimeError(f"Recorded-call fixture is missing: {REPLAY_FIXTURE.name}")
+        self.synthetic_data = True
         try:
             self.live_guard.reserve("prisma")
         except LiveCallBlocked as error:
@@ -331,6 +438,20 @@ class Session:
             await self.send({"type": "replay_finished", "source": "live", "synthetic": True})
         except asyncio.CancelledError:
             raise
+        except PrismaStreamError as error:
+            repeated = self.live_guard.record_failure("prisma")
+            await self.send({
+                "type": "service_unavailable",
+                "provider": "prisma",
+                "repeated": repeated,
+                "message": "Voice service unavailable. Continue by typing your answer.",
+                "engineer_message": error.engineer_message,
+            })
+            await self.send({
+                "type": "error",
+                "message": error.worker_message,
+                "engineer_message": error.engineer_message,
+            })
         except Exception as error:
             await self.send({"type": "error", "message": f"Recorded-call replay failed: {error}"})
             await self.send({"type": "replay_finished", "source": "live", "synthetic": True, "failed": True})
@@ -343,14 +464,19 @@ class Session:
         except asyncio.CancelledError:
             raise
         except Exception as error:
-            if self.live_guard.record_failure("prisma"):
-                self.mode = "MOCK_REPLAY"
-                self.engine.mode = self.mode
-                await self.send({
-                    "type": "notice",
-                    "message": "Prisma failed twice. Switched to MOCK_REPLAY so the demo can continue.",
-                })
-            await self.send({"type": "error", "message": f"Prisma stream failed: {error}"})
+            repeated = self.live_guard.record_failure("prisma")
+            await self.send({
+                "type": "service_unavailable",
+                "provider": "prisma",
+                "repeated": repeated,
+                "message": "Voice service unavailable. Continue by typing your answer.",
+                "engineer_message": f"Prisma stream failed: {error}",
+            })
+            await self.send({
+                "type": "error",
+                "message": "The live speech service could not be reached. Please try again or type your answer.",
+                "engineer_message": f"Prisma stream failed: {error}",
+            })
 
     async def on_prisma_event(self, event: dict) -> None:
         detected = event.get("detected_language_code")
@@ -360,7 +486,7 @@ class Session:
         consent_window = self.awaiting_consent if is_consent_transcript else False
         consent_audio = None
         if consent_window:
-            if not self.consent_audio_overflowed and self.consent_audio_buffer:
+            if STORE_CONSENT_AUDIO and not self.consent_audio_overflowed and self.consent_audio_buffer:
                 consent_audio = bytes(self.consent_audio_buffer)
             self.consent_audio_buffer.clear()
             self.consent_audio_overflowed = False
@@ -467,7 +593,7 @@ class Session:
         self.consent_audio_overflowed = False
         if intent == "yes":
             self.consent_state = "yes"
-            self.voice_consent_audio = consent_audio if consent_audio else None
+            self.voice_consent_audio = consent_audio if STORE_CONSENT_AUDIO and consent_audio else None
         elif intent == "no":
             self.consent_state = "no"
             self.voice_consent_audio = None
@@ -484,6 +610,7 @@ class Session:
         profile = lookup_eshram_uan(uan)
         if not profile:
             return await self.send({"type": "uan_result", "found": False})
+        self.synthetic_data = True
         async with self._turn_lock:
             self.slots = self.slots.model_copy(update={
                 "worker_name": profile["worker_name"], "eshram_uan": "".join(c for c in uan if c.isdigit()),
@@ -584,6 +711,7 @@ class Session:
                 "message": "An affirmative response to the read-back is required before preparing the draft.",
             })
         claim_id = uuid.uuid4().hex[:12]
+        await asyncio.to_thread(purge_expired_claims)
         await asyncio.to_thread(
             compile_form_a,
             self.slots,
@@ -591,6 +719,7 @@ class Session:
             CLAIMS_DIR / claim_id,
             self.voice_consent_audio,
             language=self.active_language,
+            synthetic_demo_data=self.synthetic_data,
         )
         profile = lookup_eshram_uan(self.slots.eshram_uan or "")
         payload = build_samadhan_mapped_draft(self.slots, self.audit, profile)
@@ -608,10 +737,15 @@ class Session:
             return
         self.slots = FormAClaimSlots()
         self.audit = None
+        self.synthetic_data = True
         self.frames = 0
         self.detected_language = resolve_language(self.language_preference)
         self.last_utterance = MOCK_TRANSCRIPTS[self.detected_language]
-        await self.send({"type": "session_started", "mode": self.mode})
+        await self.send({
+            "type": "session_started",
+            "mode": self.mode,
+            "followup": followup_for("worker_name", self.active_language),
+        })
         await self.send_language_status()
         await self.send({
             "type": "bias_boost_triggered",
@@ -657,6 +791,15 @@ class Session:
 
 @app.websocket("/ws/session")
 async def session_socket(websocket: WebSocket) -> None:
+    client_host = websocket.client.host if websocket.client else "unknown"
+    now = time.monotonic()
+    attempts = _connection_attempts[client_host]
+    while attempts and now - attempts[0] >= RATE_LIMIT_WINDOW_SECONDS:
+        attempts.popleft()
+    if len(attempts) >= RATE_LIMIT_MAX_CONNECTIONS:
+        await websocket.close(code=1013, reason="Too many connection attempts")
+        return
+    attempts.append(now)
     await websocket.accept()
     try:
         await Session(websocket).run()

@@ -10,8 +10,8 @@ SUPPORTED_LANGUAGES: tuple[str, ...] = ("hi-IN", "kn-IN", "en-IN")
 DEFAULT_LANGUAGE = "hi-IN"
 PRISMA_LANGUAGE_CODES = {
     "auto": "indic-auto",
-    "hi-IN": "hi-IN,en-IN",
-    "kn-IN": "kn-IN,en-IN",
+    "hi-IN": "hi-IN",
+    "kn-IN": "kn-IN",
     "en-IN": "en-IN",
 }
 LANGUAGE_NAMES = {

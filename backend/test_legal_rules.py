@@ -18,3 +18,18 @@ def test_checks_and_cap():
 
 def test_never_negative():
     assert compute_claim(days_worked=1, daily_wage=100, advance_received=500)["principal_arrears_inr"] == 0
+
+
+def test_large_establishment_uses_ten_day_deadline_and_defaults_are_reported():
+    result = compute_claim(
+        days_worked=10,
+        daily_wage=500,
+        wage_period_start="2026-09-01",
+        wage_period_end="2026-09-10",
+        filing_date=date(2026, 9, 20),
+        establishment_size="1000 or more workers",
+    )
+    deadline = next(check for check in result["checks"] if check["id"] == "deadline")
+    assert "2026-09-20" in deadline["detail"]
+    assert result["establishment_size_used"] == "1000 or more workers"
+    assert result["sector_used"] == "general wage rules"

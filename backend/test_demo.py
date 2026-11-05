@@ -110,7 +110,11 @@ def test_mock_replay_is_synthetic_and_deterministic():
     telemetry = next(event for event in socket.events if event["type"] == "prisma_telemetry")
     audit = next(event for event in socket.events if event["type"] == "evon_stage_b_complete")
     claim = next(event for event in socket.events if event["type"] == "evon_stage_a" and not event["missing_fields"])
-    assert socket.events[0] == {"type": "session_started", "mode": "MOCK_REPLAY"}
+    assert socket.events[0] == {
+        "type": "session_started",
+        "mode": "MOCK_REPLAY",
+        "followup": "आपका पूरा नाम क्या है?",
+    }
     assert transcript["source"] == "mock"
     assert telemetry["frame_bytes"] == 1024 and telemetry["cadence_ms"] == 64
     assert claim["slots"]["worker_name"] == "Ramesh Kumar Verma"
@@ -131,6 +135,29 @@ def test_demo_is_disabled_in_live_mode():
 
     assert len(socket.events) == 1
     assert socket.events[0]["type"] == "notice"
+
+
+def test_live_provider_failure_never_switches_to_mock():
+    async def fail():
+        raise RuntimeError("provider unavailable")
+
+    async def run():
+        socket = EventSocket()
+        session = Session(socket)
+        session.mode = "LIVE"
+        session.engine.mode = "LIVE"
+        for _ in range(2):
+            try:
+                await session._live_call("evon", fail)
+            except RuntimeError:
+                pass
+        assert session.mode == "LIVE"
+        unavailable = [event for event in socket.events if event["type"] == "service_unavailable"]
+        assert len(unavailable) == 2
+        assert unavailable[-1]["repeated"] is True
+        assert unavailable[-1]["message"] == "Voice service unavailable. Continue by typing your answer."
+
+    asyncio.run(run())
 
 
 def test_mock_replay_uses_selected_language_for_transcript_and_readback():
@@ -198,7 +225,7 @@ def test_claim_json_records_only_captured_voice_consent_audio():
     assert payload["voice_consent_sha256"] == hashlib.sha256(audio).hexdigest()
 
 
-def test_consent_transcript_is_routed_to_matcher_with_captured_audio():
+def test_consent_transcript_does_not_retain_audio_by_default():
     async def run():
         socket = EventSocket()
         session = Session(socket)
@@ -213,12 +240,12 @@ def test_consent_transcript_is_routed_to_matcher_with_captured_audio():
         await asyncio.gather(*list(session._transcript_tasks))
 
         assert session.consent_state == "yes"
-        assert session.voice_consent_audio == audio
+        assert session.voice_consent_audio is None
         status = next(event for event in socket.events if event["type"] == "consent_status")
         assert status == {
             "type": "consent_status",
             "state": "yes",
-            "voice_consent_recorded": True,
+            "voice_consent_recorded": False,
         }
         assert not any(event["type"] == "evon_stage_a" for event in socket.events)
 

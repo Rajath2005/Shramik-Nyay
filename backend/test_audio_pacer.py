@@ -8,7 +8,6 @@ from audio_pacer import (
     FRAME_BYTES,
     PRISMA_SEED_WORDS,
     PRISMA_WS_URL,
-    SUBSTITUTION_MAP,
     PrismaRealtimeStreamer,
     sanitize_bias_words,
 )
@@ -56,25 +55,29 @@ class PrismaRealtimeStreamerTests(unittest.IsolatedAsyncioTestCase):
         headers = streamer.headers()
 
         self.assertEqual(headers["x-api-key-id"], "local-test-key")
-        self.assertEqual(headers["model"], "prisma-v3.0")
-        self.assertEqual(headers["language_code"], "hi-IN,en-IN")
+        self.assertEqual(headers["x-model"], "prisma-v3.0")
+        self.assertEqual(headers["lang_code"], "indic-auto")
         self.assertEqual(headers["x-sample-rate"], "8000")
-        self.assertEqual(headers["format"], "transcribe")
+        self.assertEqual(headers["x-format"], "transcribe")
         self.assertEqual(headers["itn_native_numerals"], "false")
         self.assertEqual(headers["x-vad-threshold"], "0.72")
         self.assertEqual(headers["x-min-speech-ms"], "200")
         self.assertEqual(headers["x-min-silence-ms"], "700")
         self.assertEqual(headers["x-min-segment-ms"], "150")
-        self.assertEqual(json.loads(headers["keyterms"]), ["Thekedar", "Peenya"])
-        self.assertEqual(headers["enable_substitution"], "true")
-        self.assertEqual(json.loads(headers["substitution_map"]), [
-            {"patterns": ["thekedar"], "replacement": "Contractor (Thekedar)"},
-            {"patterns": ["dihadi"], "replacement": "Daily Wage (Dihadi)"},
-            {"patterns": ["rokda"], "replacement": "Cash Wage"},
-        ])
-        self.assertLessEqual(len(SUBSTITUTION_MAP), 10)
-        self.assertNotIn("bias_score", headers)
+        self.assertEqual(headers["x-max-speech-s"], "30")
+        self.assertEqual(json.loads(headers["x-bias-list"]), ["Thekedar", "Peenya"])
         self.assertAlmostEqual(streamer.cadence, 0.064)
+
+    def test_explicit_language_is_sent_without_comma_separated_fallback(self):
+        streamer = PrismaRealtimeStreamer(
+            "local-test-key",
+            lambda _: asyncio.sleep(0),
+            lang_code="kn-IN",
+        )
+
+        self.assertEqual(streamer.headers()["lang_code"], "kn-IN")
+        with self.assertRaises(ValueError):
+            PrismaRealtimeStreamer("local-test-key", lambda _: asyncio.sleep(0), lang_code="hi-IN,en-IN")
 
     def test_seed_terms_and_locality_vocabulary(self):
         streamer = PrismaRealtimeStreamer(
@@ -82,9 +85,7 @@ class PrismaRealtimeStreamerTests(unittest.IsolatedAsyncioTestCase):
             lambda _: asyncio.sleep(0),
             seed_words=PRISMA_SEED_WORDS,
         )
-        self.assertEqual(json.loads(streamer.headers()["keyterms"]), [
-            "Thekedar", "Mistry", "Dihadi", "Muster", "Samadhan", "UAN", "Advance", "Overtime",
-        ])
+        self.assertEqual(json.loads(streamer.headers()["x-bias-list"]), PRISMA_SEED_WORDS)
         self.assertEqual(set(LOCALITY_VOCAB), {
             "peenya", "whitefield", "yeshwanthpur", "bommanahalli", "dasarahalli",
         })
@@ -130,6 +131,18 @@ class PrismaRealtimeStreamerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(received_frames[0], audio)
         self.assertEqual(len(received_frames[0]), FRAME_BYTES)
         self.assertEqual(received_frames[1], bytes(FRAME_BYTES))
+
+    async def test_pacer_does_not_send_before_connected_event(self):
+        streamer = PrismaRealtimeStreamer("key", lambda _: asyncio.sleep(0))
+        websocket = FakeWebSocket()
+        streamer.ws = websocket
+        streamer.running = True
+        streamer._audio_ready.set()
+        streamer.push_pcm_bytes(bytes(FRAME_BYTES))
+
+        await streamer._pace()
+
+        self.assertEqual(websocket.sent, [])
 
     async def test_locality_boost_sends_documented_control_frame(self):
         streamer = PrismaRealtimeStreamer("key", lambda _: asyncio.sleep(0))
@@ -252,7 +265,7 @@ class PrismaRealtimeStreamerTests(unittest.IsolatedAsyncioTestCase):
         args, kwargs = connect.call_args
         self.assertEqual(args[0], PRISMA_WS_URL)
         self.assertEqual(kwargs["additional_headers"], streamer.headers())
-        self.assertTrue(streamer.connected.is_set())
+        self.assertFalse(streamer.connected.is_set())
         self.assertEqual(events, [{"type": "connected"}, {"type": "transcript", "text": "नमस्ते"}])
 
 

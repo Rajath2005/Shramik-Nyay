@@ -28,6 +28,8 @@ class FormAClaimSlots(BaseModel):
     advance_received_inr: int | None = None   # None = not asked yet, 0 = none received
     unlawful_deductions_inr: int | None = None
     grievance_category: str | None = None
+    establishment_size: str | None = None
+    sector: str | None = None
 
 
 REQUIRED = [
@@ -42,6 +44,8 @@ STAGE_A_PROMPT = (
     "Given current slots (JSON) and the new utterance, return ONLY JSON: "
     '{"updated_slots": {...all slot keys...}, "missing_fields": [...], "followup_question_spoken": "..."}. '
     "Dates as ISO YYYY-MM-DD, money as integer rupees, never invent values; keep null when unknown. "
+    "Optionally extract establishment_size (under 1,000 or 1,000 or more workers) and sector "
+    "(organised, unorganised, or another stated sector); these are not required to complete intake. "
     "Ask exactly ONE short, polite follow-up about the most important missing field."
 )
 
@@ -113,12 +117,17 @@ class EvonLegalEngine:
             days_worked=s.days_worked, daily_wage=s.agreed_daily_wage_inr,
             advance_received=s.advance_received_inr or 0,
             unlawful_deductions=s.unlawful_deductions_inr or 0,
-            wage_period_start=s.wage_period_start, wage_period_end=s.wage_period_end)
+            wage_period_start=s.wage_period_start,
+            wage_period_end=s.wage_period_end,
+            establishment_size=s.establishment_size,
+            sector=s.sector,
+        )
         principal = calc["principal_arrears_inr"]
         result: dict[str, Any] = {
             **calc,
             "legal_audit_summary": f"Principal arrears Rs {principal} computed from {s.days_worked} days x Rs {s.agreed_daily_wage_inr}.",
             "form_a_clauses": [],
+            "drafting_incomplete": False,
             # Spoken form is built deterministically so numbers are always expanded to words.
             "timbre_v3_readback_script": readback_script(principal, target_language),
         }
@@ -140,6 +149,7 @@ class EvonLegalEngine:
                 result.update({k: drafted[k] for k in ("legal_audit_summary", "form_a_clauses") if k in drafted})
             except Exception as error:                    # keep the demo alive; arithmetic is already safe
                 result["draft_warning"] = f"LLM drafting failed: {error}"
+                result["drafting_incomplete"] = True
                 live_call_failed = True
         else:
             result["form_a_clauses"] = [f"Clause {i}: verified worker statement." for i in range(1, 6)]
