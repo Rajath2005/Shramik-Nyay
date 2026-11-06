@@ -1,27 +1,33 @@
 .header {
+  position: sticky;
+  z-index: 10;
   display: grid;
   min-height: 64px;
   grid-template-columns: minmax(180px, 1fr) auto minmax(0, 1fr);
   align-items: center;
   gap: 20px;
-  padding: 8px 32px;
-  border-bottom: 1px solid var(--line);
-  background: var(--surface);
+  padding: 10px 28px;
+  border: 1px solid var(--line);
+  border-radius: 0 0 18px 18px;
+  background: color-mix(in srgb, var(--surface) 84%, transparent);
+  box-shadow: 0 12px 32px color-mix(in srgb, var(--surface) 55%, transparent);
+  backdrop-filter: blur(16px);
 }
 .studio { min-height: 60px; flex: 0 0 60px; padding-inline: 22px; }
 .studio .mark { width: 34px; height: 34px; }
 .brand { display: inline-flex; width: fit-content; align-items: center; gap: 10px; color: var(--ink); }
-.mark { display: grid; width: 36px; height: 36px; place-items: center; border: 1px solid var(--line); border-radius: var(--radius-control); color: var(--blue); font-size: 15px; font-weight: 700; }
-.name { font-size: 16px; font-weight: 700; }
+.mark { display: grid; width: 38px; height: 38px; place-items: center; border: 1px solid color-mix(in srgb, var(--blue) 48%, var(--line)); border-radius: 12px; color: var(--blue); font-size: 15px; font-weight: 700; box-shadow: inset 0 1px 0 rgba(255,255,255,.16); }
+.name { font-size: 16px; font-weight: 700; letter-spacing: -.02em; }
 .controls { display: flex; align-items: center; justify-content: flex-end; gap: 10px; }
 .themeToggle {
-  min-height: 46px;
+  min-height: 40px;
   border: 1px solid var(--line);
-  border-radius: var(--radius-control);
+  border-radius: 999px;
   color: var(--ink);
   background: var(--raised);
 }
-.themeToggle { padding: 5px 12px; }
+.themeToggle { display: inline-flex; align-items: center; gap: 7px; padding: 5px 13px; }
+.themeIcon { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: 1.7; }
 .statusCluster { display: flex; align-items: center; gap: 8px; }
 .creditCounter {
   padding: 7px 9px;
@@ -38,6 +44,14 @@
   .header > :nth-child(2) { grid-column: 1; grid-row: 2; justify-self: start; }
   .controls { grid-column: 2; grid-row: 1 / span 2; flex-wrap: wrap; }
   .statusCluster { flex-wrap: wrap; justify-content: flex-end; }
+}
+
+@media (max-width: 1023px) {
+  .studio {
+    height: auto;
+    min-height: 0;
+    flex: 0 0 auto;
+  }
 }
 
 @media (max-width: 420px) {

@@ -1,0 +1,182 @@
+.container {
+  position: relative;
+  width: 300px;
+  height: 300px;
+  margin: var(--spacing-8) auto;
+}
+
+.orbCanvas {
+  width: 100%;
+  height: 100%;
+  filter: drop-shadow(0 0 24px rgba(59, 130, 246, 0.3));
+}
+
+.orbCanvas.active {
+  filter: drop-shadow(0 0 48px rgba(16, 185, 129, 0.5));
+}
+
+.halo {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 280px;
+  height: 280px;
+  border-radius: 50%;
+  background: radial-gradient(
+    circle,
+    rgba(59, 130, 246, 0.1) 0%,
+    transparent 70%
+  );
+  opacity: 0;
+  transition: opacity var(--duration-normal) var(--ease-out);
+}
+
+[data-theme='dark'] .halo {
+  background: radial-gradient(
+    circle,
+    rgba(59, 130, 246, 0.15) 0%,
+    transparent 70%
+  );
+}
+
+.container.active .halo {
+  opacity: 1;
+  animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+.innerHalo {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 240px;
+  height: 240px;
+  border-radius: 50%;
+  background: radial-gradient(
+    circle,
+    rgba(16, 185, 129, 0.15) 0%,
+    transparent 60%
+  );
+  opacity: 0;
+  transition: opacity var(--duration-normal) var(--ease-out);
+}
+
+.container.active .innerHalo {
+  opacity: 1;
+  animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) 0.5s infinite;
+}
+
+@keyframes pulse {
+  0%, 100% {
+    opacity: 0.4;
+    transform: translate(-50%, -50%) scale(1);
+  }
+  50% {
+    opacity: 0.8;
+    transform: translate(-50%, -50%) scale(1.05);
+  }
+}
+
+/* Telemetry Status */
+.telemetryStatus {
+  display: flex;
+  gap: var(--spacing-2);
+  justify-content: center;
+  margin-bottom: var(--spacing-4);
+  flex-wrap: wrap;
+}
+
+.telemetryChip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-2);
+  padding: var(--spacing-1-5) var(--spacing-3);
+  background: var(--color-neutral-100);
+  border: 1px solid var(--color-neutral-200);
+  border-radius: var(--radius-full);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-neutral-700);
+  font-family: var(--font-family-mono);
+}
+
+[data-theme='dark'] .telemetryChip {
+  background: var(--color-neutral-900);
+  border-color: var(--color-neutral-800);
+  color: var(--color-neutral-300);
+}
+
+.telemetryDot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--color-success-500);
+}
+
+/* State Indicator */
+.stateIndicator {
+  text-align: center;
+  margin-top: var(--spacing-6);
+}
+
+.stateText {
+  font-size: var(--font-size-base);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-neutral-600);
+  margin-bottom: var(--spacing-2);
+}
+
+[data-theme='dark'] .stateText {
+  color: var(--color-neutral-400);
+}
+
+.stateText.listening {
+  color: var(--color-success-600);
+}
+
+[data-theme='dark'] .stateText.listening {
+  color: var(--color-success-400);
+}
+
+.stateText.thinking {
+  color: var(--color-primary-600);
+}
+
+[data-theme='dark'] .stateText.thinking {
+  color: var(--color-primary-400);
+}
+
+.stateText.error {
+  color: var(--color-error-600);
+}
+
+[data-theme='dark'] .stateText.error {
+  color: var(--color-error-400);
+}
+
+.stateHint {
+  font-size: var(--font-size-sm);
+  color: var(--color-neutral-500);
+}
+
+[data-theme='dark'] .stateHint {
+  color: var(--color-neutral-500);
+}
+
+@media (max-width: 640px) {
+  .container {
+    width: 240px;
+    height: 240px;
+  }
+
+  .halo {
+    width: 220px;
+    height: 220px;
+  }
+
+  .innerHalo {
+    width: 180px;
+    height: 180px;
+  }
+}

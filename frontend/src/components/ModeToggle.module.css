@@ -1,13 +1,13 @@
-.toggle { display: flex; padding: 3px; border: 1px solid var(--line); border-radius: var(--radius-control); }
+.toggle { display: flex; padding: 3px; border: 1px solid var(--line); border-radius: 999px; background: color-mix(in srgb, var(--raised) 70%, transparent); }
 .toggle button {
   min-width: 84px;
-  min-height: 46px;
+  min-height: 36px;
   padding: 7px 12px;
   border: 0;
-  border-radius: 2px;
+  border-radius: 999px;
   color: var(--ink);
   background: transparent;
   font-size: 14px;
   font-weight: 700;
 }
-.toggle button[aria-pressed='true'] { color: var(--surface); background: var(--ink); }
+.toggle button[aria-pressed='true'] { color: var(--raised); background: var(--ink); box-shadow: 0 3px 10px color-mix(in srgb, var(--ink) 18%, transparent); }

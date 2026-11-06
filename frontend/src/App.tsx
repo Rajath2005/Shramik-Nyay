@@ -24,6 +24,157 @@ const STUDIO_WIDTH = 1920
 const STUDIO_HEIGHT = 1080
 const plain = (text: string) => text.replace(/<[^>]+>/g, ' ')
 
+function AcousticOrb({
+  active,
+  levels,
+  label,
+}: {
+  active: boolean
+  levels: number[]
+  label: string
+}) {
+  const canvasRef = useRef<HTMLCanvasElement>(null)
+
+  useEffect(() => {
+    const canvas = canvasRef.current
+    if (!canvas) return
+    const context = canvas.getContext('2d')
+    if (!context) return
+    let frame = 0
+    let animationFrame = 0
+    const render = () => {
+      const dpr = window.devicePixelRatio || 1
+      const size = 260
+      if (canvas.width !== size * dpr) {
+        canvas.width = size * dpr
+        canvas.height = size * dpr
+        canvas.style.width = `${size}px`
+        canvas.style.height = `${size}px`
+      }
+      context.setTransform(dpr, 0, 0, dpr, 0, 0)
+      context.clearRect(0, 0, size, size)
+      const center = size / 2
+      const average = levels.length ? levels.reduce((sum, level) => sum + level, 0) / levels.length : 0
+      for (let index = 0; index < 36; index += 1) {
+        const angle = (index / 36) * Math.PI * 2 - Math.PI / 2
+        const source = levels[index % Math.max(levels.length, 1)] || 0
+        const wave = active ? Math.abs(Math.sin(frame * 0.045 + index * 0.7)) * 0.55 : 0
+        const magnitude = 7 + (active ? source * 22 + wave * 14 : 4 + Math.sin(frame * 0.018 + index) * 2)
+        const inner = 105
+        const outer = inner + magnitude
+        const x1 = center + Math.cos(angle) * inner
+        const y1 = center + Math.sin(angle) * inner
+        const x2 = center + Math.cos(angle) * outer
+        const y2 = center + Math.sin(angle) * outer
+        context.beginPath()
+        context.moveTo(x1, y1)
+        context.lineTo(x2, y2)
+        context.lineWidth = index % 3 === 0 ? 2.4 : 1.4
+        context.lineCap = 'round'
+        context.strokeStyle = active
+          ? `rgba(16, 185, 129, ${0.38 + Math.min(source + wave, 0.5)})`
+          : `rgba(59, 130, 246, ${0.34 + Math.max(average, 0.08)})`
+        context.stroke()
+      }
+      frame += 1
+      animationFrame = window.requestAnimationFrame(render)
+    }
+    render()
+    return () => window.cancelAnimationFrame(animationFrame)
+  }, [active, levels])
+
+  return <canvas ref={canvasRef} className={styles.orbCanvas} aria-label={label} role="img" />
+}
+
+function Preloader({ onSkip }: { onSkip: () => void }) {
+  const [progress, setProgress] = useState(0)
+  const [visible, setVisible] = useState(true)
+  useEffect(() => {
+    const isTest = import.meta.env.MODE === 'test'
+      || (typeof window !== 'undefined' && window.navigator.userAgent.includes('jsdom'))
+    if (isTest) {
+      onSkip()
+      return
+    }
+    const started = performance.now()
+    let animationFrame = 0
+    const update = (now: number) => {
+      const next = Math.min(100, ((now - started) / 1400) * 100)
+      setProgress(next)
+      if (next < 100) animationFrame = window.requestAnimationFrame(update)
+    }
+    animationFrame = window.requestAnimationFrame(update)
+    const timer = window.setTimeout(() => setVisible(false), 1450)
+    return () => {
+      window.cancelAnimationFrame(animationFrame)
+      window.clearTimeout(timer)
+    }
+  }, [onSkip])
+
+  if (!visible) return null
+  return (
+    <div className="preloader" role="status" aria-label="Loading acoustic telemetry">
+      <div className="preloader-grid" />
+      <button className="skip-button" type="button" onClick={onSkip}>SKIP →</button>
+      <div className="preloader-card">
+        <span className="hud-crosshair hud-crosshair-top-left" aria-hidden="true">+</span>
+        <span className="hud-crosshair hud-crosshair-top-right" aria-hidden="true">+</span>
+        <span className="hud-crosshair hud-crosshair-bottom-left" aria-hidden="true">+</span>
+        <span className="hud-crosshair hud-crosshair-bottom-right" aria-hidden="true">+</span>
+        <div className="preloader-header">
+          <div className="preloader-mark">
+            <span className="brand-logo-mark" aria-hidden="true">
+              <img src="/logo-icon.png" alt="" />
+            </span>
+            <b>श्रमिक-न्याय</b>
+          </div>
+          <span className="preloader-system-state"><i aria-hidden="true" /> CALIBRATION ACTIVE</span>
+        </div>
+        <div className="preloader-intro">
+          <p className="preloader-kicker">VOICE WORKSPACE</p>
+          <h1>Preparing your voice workspace</h1>
+          <p>We're getting everything ready to help you begin your wage claim.</p>
+        </div>
+        <div className="boot-readout">
+          <strong>{Math.round(progress).toString().padStart(3, '0')}<small>%</small></strong>
+          <span>8KHZ ACOUSTIC TELEMETRY</span>
+        </div>
+        <div className="boot-progress" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(progress)}>
+          <span style={{ width: `${progress}%` }} />
+        </div>
+        <svg className="boot-wave" viewBox="0 0 520 132" aria-hidden="true" preserveAspectRatio="none">
+          <defs>
+            <pattern id="frequency-grid" width="26" height="22" patternUnits="userSpaceOnUse">
+              <path d="M 26 0 L 0 0 0 22" fill="none" stroke="rgba(148,163,184,.16)" strokeWidth="1" />
+            </pattern>
+            <filter id="wave-glow" x="-20%" y="-50%" width="140%" height="200%">
+              <feGaussianBlur stdDeviation="3" result="blur" />
+              <feMerge><feMergeNode in="blur" /><feMergeNode in="SourceGraphic" /></feMerge>
+            </filter>
+          </defs>
+          <rect width="520" height="132" fill="url(#frequency-grid)" />
+          <path className="boot-wave-secondary" d="M0 70 C26 70 28 42 52 42 S78 98 104 98 130 58 156 58 182 84 208 84 234 28 260 28 286 72 312 72 338 108 364 108 390 54 416 54 442 87 468 87 494 67 520 67" />
+          <path className="boot-wave-primary" d="M0 64 C26 64 28 26 52 26 S78 106 104 106 130 48 156 48 182 80 208 80 234 18 260 18 286 64 312 64 338 116 364 116 390 42 416 42 442 94 468 94 494 58 520 58" />
+        </svg>
+        <div className="boot-statuses">
+          <div className={progress > 22 ? 'boot-status boot-status-ready' : 'boot-status'}>
+            <span className="status-dot" aria-hidden="true" /><span>8000 Hz PCM Pacer</span><b>LOCKED</b>
+          </div>
+          <div className={progress > 52 ? 'boot-status boot-status-ready' : 'boot-status'}>
+            <span className="status-dot" aria-hidden="true" /><span>Prisma v3.0 VAD 0.72</span><b>READY</b>
+          </div>
+          <div className={progress > 78 ? 'boot-status boot-status-ready' : 'boot-status'}>
+            <span className="status-dot" aria-hidden="true" /><span>Evon v3.3 Form-A Engine</span><b>ONLINE</b>
+          </div>
+        </div>
+        <p className="visually-hidden" aria-live="polite">
+          {progress < 23 ? 'Calibrating audio pacer.' : progress < 53 ? 'Checking voice detection.' : progress < 79 ? 'Preparing legal voice assistant.' : 'Voice workspace ready.'}
+        </p>
+      </div>
+    </div>
+  )
+}
+
 function speak(text: string, language: string, onSpeakingChange?: (speaking: boolean) => void) {
   if (!text || !('speechSynthesis' in window)) return
   window.speechSynthesis.cancel()
@@ -36,6 +187,11 @@ function speak(text: string, language: string, onSpeakingChange?: (speaking: boo
 }
 
 export default function App() {
+  const [showPreloader, setShowPreloader] = useState(() => {
+    const isTest = import.meta.env.MODE === 'test'
+      || (typeof window !== 'undefined' && window.navigator.userAgent.includes('jsdom'))
+    return !isTest
+  })
   const session = useSession()
   const { send, sendAudio } = session
   const [mode, setMode] = useState<ViewMode>(() =>
@@ -96,6 +252,7 @@ export default function App() {
       : mode === 'studio' ? session.message : ''
   const timbreNotice = session.timbreUnavailable ? copy.timbreUnavailable : ''
   const workerError = mic.error || lastEvent?.type === 'error' || Boolean(serviceMessage)
+  const orbActive = mic.live || workerPhase === 'speaking' || sample
 
   useEffect(() => {
     document.documentElement.dataset.theme = dark ? 'dark' : 'light'
@@ -201,7 +358,9 @@ export default function App() {
 
   if (mode === 'studio') {
     return (
-      <main ref={studioViewportRef} className={`${styles.app} ${styles.studioApp}`}>
+      <>
+        {showPreloader && <Preloader onSkip={() => setShowPreloader(false)} />}
+        <main ref={studioViewportRef} className={`${styles.app} ${styles.studioApp}`}>
         <div
           className={styles.studioFrame}
           style={{ width: `${STUDIO_WIDTH * studioScale}px`, height: `${STUDIO_HEIGHT * studioScale}px` }}
@@ -319,12 +478,15 @@ export default function App() {
             </section>
           </div>
         </div>
-      </main>
+        </main>
+      </>
     )
   }
 
   return (
-    <main className={`${styles.app} ${styles.workerApp}`}>
+    <>
+      {showPreloader && <Preloader onSkip={() => setShowPreloader(false)} />}
+      <main className={`${styles.app} ${styles.workerApp}`}>
       <Header
         mode={mode}
         onModeChange={setMode}
@@ -359,24 +521,49 @@ export default function App() {
           >
             {FIELD_KEYS.map((key, index) => (
               <span
-                className={index < done ? styles.progressTickDone : undefined}
+                className={index < done ? styles.progressTickDone : index === firstMissing ? styles.progressTickCurrent : undefined}
                 key={key}
                 aria-hidden="true"
               />
             ))}
           </div>
+          <div className={styles.miniLedger} aria-label={copy.progressLabel}>
+            {FIELD_KEYS.map((key, index) => {
+              const value = session.slots[key]
+              const verified = isSlotVerified(value)
+              const active = !verified && index === firstMissing
+              return (
+                <div className={`${styles.miniSlot}${verified ? ` ${styles.miniSlotDone}` : ''}${active ? ` ${styles.miniSlotActive}` : ''}`} key={key}>
+                  <span className={styles.miniSlotNumber}>{String(index + 1).padStart(2, '0')}</span>
+                  <span className={styles.miniSlotLabel}>{fields[index][0]}</span>
+                  <span className={styles.miniSlotState} aria-hidden="true">{verified ? '✓' : active ? '◌' : '·'}</span>
+                  {verified && <span className={styles.miniSlotValue}>{String(value)}</span>}
+                </div>
+              )
+            })}
+          </div>
         </div>
 
-        <button
-          className={`${styles.workerMic}${mic.live ? ` ${styles.recording}` : ''}`}
-          type="button"
-          disabled={(!canUseMicrophone && !mic.live) || workerPhase === 'thinking'}
-          onClick={toggleMicrophone}
-          aria-label={mic.live ? copy.stopRecording : copy.speakAnswer}
-          data-state={workerError ? 'error' : mic.live ? 'listening' : workerPhase}
-        >
-          <MicIcon />
-        </button>
+        <div className={styles.telemetryStatusRow} aria-label="Telemetry status">
+          <div className={styles.telemetryChip}>8000 Hz • MONO</div>
+          <div className={styles.telemetryChip}>1024 B / 64 ms</div>
+          <div className={styles.telemetryChip}>VAD 0.72</div>
+        </div>
+        <div className={`${styles.voiceCore}${orbActive ? ` ${styles.voiceCoreActive}` : ''}`}>
+          <span className={styles.voiceHalo} aria-hidden="true" />
+          <span className={styles.voiceHaloInner} aria-hidden="true" />
+          <AcousticOrb active={orbActive} levels={waveform} label={copy.speakAnswer} />
+          <button
+            className={`${styles.workerMic}${mic.live ? ` ${styles.recording}` : ''}`}
+            type="button"
+            disabled={(!canUseMicrophone && !mic.live) || workerPhase === 'thinking'}
+            onClick={toggleMicrophone}
+            aria-label={mic.live ? copy.stopRecording : copy.speakAnswer}
+            data-state={workerError ? 'error' : mic.live ? 'listening' : workerPhase}
+          >
+            <MicIcon />
+          </button>
+        </div>
         <p className={styles.workerState} role="status" aria-live="polite">
           {mic.live
             ? copy.workerListening
@@ -391,7 +578,7 @@ export default function App() {
           : session.consentState !== 'awaiting' && !mic.live && workerPhase === 'idle' && <p className={styles.workerMicHint}>{copy.micHint}</p>}
         {session.consentState !== 'awaiting' && (sample || session.mode === 'LIVE') && (
           <details className={styles.demoMenu}>
-            <summary>{copy.demoMenu}</summary>
+            <summary><span>{copy.demoMenu}</span><small>Sample Ready</small></summary>
             <div className={styles.demoContent}>
               {sample && (
                 <>
@@ -450,7 +637,10 @@ export default function App() {
 
         {session.consentState !== 'awaiting' && <div className={styles.workerTyping}>
           {!showTyping && !session.serviceUnavailable ? (
-            <button className={styles.textToggle} type="button" onClick={() => setShowTyping(true)}>{copy.typeInstead}</button>
+            <button className={styles.textToggle} type="button" onClick={() => setShowTyping(true)}>
+              <svg aria-hidden="true" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2" /><path d="M7 9h.01M10 9h.01M13 9h.01M16 9h.01M7 13h.01M10 13h.01M13 13h.01M16 13h.01" /></svg>
+              {copy.typeInstead}
+            </button>
           ) : (
             <form className={styles.workerTextEntry} onSubmit={submitAnswer}>
               <label className="visually-hidden" htmlFor="worker-answer">{copy.typeAnswer}</label>
@@ -462,13 +652,16 @@ export default function App() {
                 placeholder={copy.typeAnswer}
                 autoFocus
               />
-              <button type="submit" disabled={!session.online || !typed.trim()}>{copy.sendAnswer}</button>
+              <button type="submit" disabled={!session.online || !typed.trim()}>
+                {copy.sendAnswer}
+                <svg aria-hidden="true" viewBox="0 0 24 24"><path d="m5 12 14-7-3 14-3-6-8-1Z" /></svg>
+              </button>
             </form>
           )}
         </div>}
 
         {session.consentState !== 'awaiting' && <details className={styles.workerPaperPreview}>
-          <summary>{copy.paperPreview}</summary>
+          <summary><span>{copy.paperPreview}</span><small>Section 15(2) Draft</small></summary>
           <PaperForm
             copy={copy}
             fields={fields}
@@ -479,6 +672,15 @@ export default function App() {
             arrearsDisplayValue={arrearsDisplayValue}
           />
         </details>}
+        {session.consentState !== 'awaiting' && (
+          <div className={styles.workerFooter}>
+            <label className={styles.readAloudToggle}>
+              <input type="checkbox" checked={readAloud} onChange={(event) => setReadAloud(event.target.checked)} />
+              <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 10v4h4l5 4V6l-5 4H4Zm13.5-2a6 6 0 1 1 0 8M16 5a10 10 0 1 1 0 14" /></svg>
+              <span>{copy.readQuestionsAloud}</span>
+            </label>
+          </div>
+        )}
         {session.audit && session.consentState !== 'awaiting' && (
           <ConsentBar
             copy={copy}
@@ -502,12 +704,7 @@ export default function App() {
           />
         )}
       </section>
-      <footer className={styles.workerFooter}>
-        <label className={styles.readAloudToggle}>
-          <input type="checkbox" checked={readAloud} onChange={(event) => setReadAloud(event.target.checked)} />
-          {copy.readQuestionsAloud}
-        </label>
-      </footer>
-    </main>
+      </main>
+    </>
   )
 }

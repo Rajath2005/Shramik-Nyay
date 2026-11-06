@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
+from datetime import date
 from pathlib import Path
 from typing import Any
 from xml.sax.saxutils import escape
@@ -22,6 +24,7 @@ from reportlab.platypus import (
 )
 
 from evon_legal_engine import FormAClaimSlots
+from eshram_mock_db import lookup_eshram_uan
 from language_support import resolve_language
 from legal_rules import NOTICE
 
@@ -157,6 +160,104 @@ SECTION_TITLES = {
     ),
 }
 
+_STATE_AREAS = {
+    "andhra pradesh": "Andhra Pradesh", "arunachal pradesh": "Arunachal Pradesh",
+    "assam": "Assam", "bihar": "Bihar", "chhattisgarh": "Chhattisgarh",
+    "goa": "Goa", "gujarat": "Gujarat", "haryana": "Haryana",
+    "himachal pradesh": "Himachal Pradesh", "jharkhand": "Jharkhand",
+    "karnataka": "Karnataka", "kerala": "Kerala", "madhya pradesh": "Madhya Pradesh",
+    "maharashtra": "Maharashtra", "manipur": "Manipur", "meghalaya": "Meghalaya",
+    "mizoram": "Mizoram", "nagaland": "Nagaland", "odisha": "Odisha",
+    "punjab": "Punjab", "rajasthan": "Rajasthan", "sikkim": "Sikkim",
+    "tamil nadu": "Tamil Nadu", "telangana": "Telangana", "tripura": "Tripura",
+    "uttar pradesh": "Uttar Pradesh", "uttarakhand": "Uttarakhand",
+    "west bengal": "West Bengal", "andaman": "Andaman and Nicobar Islands",
+    "chandigarh": "Chandigarh", "dadra": "Dadra and Nagar Haveli and Daman and Diu",
+    "daman": "Dadra and Nagar Haveli and Daman and Diu", "delhi": "Delhi",
+    "jammu": "Jammu and Kashmir", "kashmir": "Jammu and Kashmir",
+    "ladakh": "Ladakh", "lakshadweep": "Lakshadweep", "puducherry": "Puducherry",
+}
+_CITY_AREAS = {
+    "bengaluru": "Bengaluru Urban District, Karnataka", "bangalore": "Bengaluru Urban District, Karnataka",
+    "peenya": "Bengaluru Urban District, Karnataka", "mysuru": "Mysuru District, Karnataka",
+    "mumbai": "Mumbai, Maharashtra", "pune": "Pune, Maharashtra",
+    "gurugram": "Gurugram, Haryana", "gurgaon": "Gurugram, Haryana",
+    "patna": "Patna, Bihar", "kolkata": "Kolkata, West Bengal",
+    "chennai": "Chennai, Tamil Nadu", "hyderabad": "Hyderabad, Telangana",
+    "ahmedabad": "Ahmedabad, Gujarat", "jaipur": "Jaipur, Rajasthan",
+    "lucknow": "Lucknow, Uttar Pradesh", "bhubaneswar": "Bhubaneswar, Odisha",
+    "kochi": "Ernakulam, Kerala", "bhopal": "Bhopal, Madhya Pradesh",
+}
+_CENTRAL_SPHERE_TERMS = (
+    "railway", "metro rail", "mine", "mining", "oilfield", "oil field", "airport",
+    "port", "national highway", "nhai", "bank", "cpwd",
+)
+
+
+def resolve_jurisdiction_metadata(
+    worksite_locality_and_sphere: str | None = None,
+    state: str | None = None,
+    sphere: str | None = None,
+) -> dict[str, str]:
+    """Resolve the statutory authority without assuming the worker's state."""
+    location = " ".join(filter(None, (worksite_locality_and_sphere, state, sphere))).strip()
+    lowered = location.casefold()
+    if any(term in lowered for term in _CENTRAL_SPHERE_TERMS) or (sphere or "").casefold() == "central":
+        return {
+            "authority_title": "Office of the Regional Labour Commissioner (Central) & Authority under the Payment of Wages Act, 1936",
+            "rules_citation": "Payment of Wages (Procedure) Rules, 1937 (Central Sphere)",
+            "area": "Central Sphere",
+        }
+    for keyword, area in _CITY_AREAS.items():
+        if re.search(rf"\b{re.escape(keyword)}\b", lowered):
+            return {
+                "authority_title": f"Court of the Authority appointed under the Payment of Wages Act, 1936 (Assistant / Deputy Labour Commissioner) for the {area} Area",
+                "rules_citation": "Section 15(2) of the Payment of Wages Act, 1936 read with the applicable State / Central Payment of Wages (Procedure) Rules",
+                "area": area,
+            }
+    for keyword, area in _STATE_AREAS.items():
+        if keyword in lowered:
+            return {
+                "authority_title": f"Court of the Authority appointed under the Payment of Wages Act, 1936 (Assistant / Deputy Labour Commissioner) for the {area} Area",
+                "rules_citation": "Section 15(2) of the Payment of Wages Act, 1936 read with the applicable State / Central Payment of Wages (Procedure) Rules",
+                "area": area,
+            }
+    area = (state or worksite_locality_and_sphere or "the appropriate jurisdiction").strip()
+    return {
+        "authority_title": f"Court of the Authority appointed under the Payment of Wages Act, 1936 (Assistant / Deputy Labour Commissioner) for the {area} Area",
+        "rules_citation": "Section 15(2) of the Payment of Wages Act, 1936 read with the applicable State / Central Payment of Wages (Procedure) Rules",
+        "area": area,
+    }
+
+
+def _number_words(number: int) -> str:
+    ones = ("Zero", "One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine",
+            "Ten", "Eleven", "Twelve", "Thirteen", "Fourteen", "Fifteen", "Sixteen",
+            "Seventeen", "Eighteen", "Nineteen")
+    tens = ("", "", "Twenty", "Thirty", "Forty", "Fifty", "Sixty", "Seventy", "Eighty", "Ninety")
+    def under_thousand(value: int) -> str:
+        parts = []
+        if value >= 100:
+            parts += [ones[value // 100], "Hundred"]
+            value %= 100
+        if value >= 20:
+            parts.append(tens[value // 10])
+            value %= 10
+        if value:
+            parts.append(ones[value])
+        return " ".join(parts)
+    if number < 1000:
+        return under_thousand(number)
+    thousands, remainder = divmod(number, 1000)
+    result = f"{under_thousand(thousands)} Thousand"
+    if remainder:
+        result += f" {under_thousand(remainder)}"
+    return result
+
+
+def _statutory_fallback(value: Any, fallback: str) -> str:
+    return str(value).strip() if value is not None and str(value).strip() else fallback
+
 
 def _register_fonts() -> None:
     font_directory = Path(__file__).with_name("fonts")
@@ -269,10 +370,15 @@ def compile_form_a(
     labels = LABELS[locale]
     output_directory.mkdir(parents=True, exist_ok=True)
     has_voice_consent_audio = bool(voice_consent_audio)
+    profile = lookup_eshram_uan(slots.eshram_uan or "") or {}
+    jurisdiction = resolve_jurisdiction_metadata(
+        slots.worksite_locality_and_sphere or str(profile.get("current_service_address") or "")
+    )
     payload = {
         "form": "Form A - Payment of Wages Act, 1936",
         "slots": slots.model_dump(),
         "audit": audit,
+        "jurisdiction": jurisdiction,
         "voice_consent_recorded": has_voice_consent_audio,
         "voice_consent_sha256": (
             hashlib.sha256(voice_consent_audio).hexdigest()
@@ -351,60 +457,109 @@ def compile_form_a(
         title="Shramik-Nyay Form A Claim",
         author="Shramik-Nyay",
     )
-    clauses = audit.get("form_a_clauses")
-    if not isinstance(clauses, list):
-        clauses = []
-    story = [
-        Paragraph(escape(labels["title"]), styles["title"]),
-        Paragraph(
-            "Form A - Payment of Wages Act, 1936",
-            styles["subtitle"],
-        ),
+    applicant = _statutory_fallback(slots.worker_name or profile.get("worker_name"), "The Applicant")
+    uan = _statutory_fallback(slots.eshram_uan, "UAN to be verified from e-Shram record")
+    worksite = _statutory_fallback(
+        slots.worksite_locality_and_sphere or profile.get("current_service_address"),
+        jurisdiction["area"],
+    )
+    applicant_address = _statutory_fallback(
+        profile.get("current_service_address") or profile.get("permanent_address"),
+        f"Residential / service address at {worksite}",
+    )
+    contractor = _statutory_fallback(slots.contractor_name_and_phone, "Immediate Contractor / Thekedar")
+    employer = _statutory_fallback(slots.principal_employer_name, "Principal Employer at the stated worksite")
+    start = _statutory_fallback(slots.wage_period_start, "the wage period start date")
+    end = _statutory_fallback(slots.wage_period_end, "the wage period end date")
+    days = slots.days_worked or 0
+    daily = slots.agreed_daily_wage_inr or 0
+    advance = slots.advance_received_inr or 0
+    principal = int(audit.get("principal_arrears_inr") or 0)
+    deductions = int(audit.get("claimed_deductions_inr") or slots.unlawful_deductions_inr or 0)
+    deadline_check = next((item for item in audit.get("checks", []) if item.get("id") == "deadline"), {})
+    overdue = deadline_check.get("status") == "fail"
+    compensation = int(audit.get("max_compensation_inr") or 0)
+    if overdue and compensation == 0:
+        compensation = principal * 2
+    relief = principal
+    year = (slots.wage_period_end or "").split("-", 1)[0] or str(date.today().year)
+    date_year = year if year.isdigit() else "2026"
+    authority = jurisdiction["authority_title"]
+    party_rows = [
+        [Paragraph("<b>Between:</b>", styles["body"]), Paragraph(
+            f"<b>Applicant:</b> {escape(applicant)}<br/>"
+            f"Designation: Unorganized Sector Workman<br/>e-Shram UAN: {escape(uan)}<br/>"
+            f"Residential / Service Address: {escape(applicant_address)}", styles["body"])],
+        [Paragraph("<b>And:</b>", styles["body"]), Paragraph(
+            f"<b>Respondent / Opposite Party 1:</b> {escape(contractor)}<br/>"
+            f"<b>Respondent / Opposite Party 2:</b> {escape(employer)} (Principal Employer under Section 3)",
+            styles["body"])],
     ]
-
+    parties = Table(party_rows, colWidths=[document.width * 0.16, document.width * 0.84])
+    parties.setStyle(TableStyle([
+        ("VALIGN", (0, 0), (-1, -1), "TOP"), ("BOX", (0, 0), (-1, -1), 0.5, colors.HexColor("#687382")),
+        ("INNERGRID", (0, 0), (-1, -1), 0.25, colors.HexColor("#D7DDE3")),
+        ("LEFTPADDING", (0, 0), (-1, -1), 4), ("RIGHTPADDING", (0, 0), (-1, -1), 4),
+        ("TOPPADDING", (0, 0), (-1, -1), 3), ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+    ]))
+    story = [
+        Paragraph("FORM A — Form of Individual Application", styles["title"]),
+        Paragraph("(See sub-section (2) of Section 15 of the Payment of Wages Act, 1936)", styles["subtitle"]),
+        Paragraph(f"In the Court of the Authority appointed under the Payment of Wages Act, 1936 for the {escape(jurisdiction['area'])} jurisdiction", styles["body"]),
+        Paragraph(escape(jurisdiction["authority_title"]), styles["notice"]),
+        Paragraph(f"Application No. ________ of {date_year} | SAMADHAN e-Filing Ready", styles["body"]),
+        Spacer(1, 4), parties, Spacer(1, 4),
+    ]
+    narrative_clauses = audit.get("form_a_clauses")
+    if not isinstance(narrative_clauses, list):
+        narrative_clauses = []
     for index, fields in enumerate(SECTION_FIELDS):
-        clause_text = clauses[index] if index < len(clauses) else labels["clause_missing"]
-        heading = Paragraph(f"<b>{index + 1}. {escape(SECTION_TITLES[locale][index])}</b>", styles["section"])
-        body = Paragraph(escape(str(clause_text)), styles["body"])
-        rows = [
-            [
-                Paragraph(escape(labels[field]), styles["label"]),
-                Paragraph(
-                    escape(_field_value(field, slots, audit, labels)),
-                    styles["body"],
-                ),
-            ]
-            for field in fields
-        ]
-        details = Table(rows, colWidths=[document.width * 0.34, document.width * 0.66])
-        details.setStyle(
-            TableStyle(
-                [
-                    ("VALIGN", (0, 0), (-1, -1), "TOP"),
-                    ("LEFTPADDING", (0, 0), (-1, -1), 4),
-                    ("RIGHTPADDING", (0, 0), (-1, -1), 4),
-                    ("TOPPADDING", (0, 0), (-1, -1), 3),
-                    ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
-                    ("LINEBELOW", (0, 0), (-1, -1), 0.25, colors.HexColor("#D7DDE3")),
-                ]
-            )
-        )
-        story.append(KeepTogether([heading, body, Spacer(1, 4), details, Spacer(1, 7)]))
+        heading = SECTION_TITLES[locale][index]
+        clause_text = narrative_clauses[index] if index < len(narrative_clauses) else labels["clause_missing"]
+        story.append(Paragraph(f"<b>{index + 1}. {escape(heading)}</b>", styles["section"]))
+        story.append(Paragraph(escape(str(clause_text)), styles["body"]))
+        for field in fields:
+            story.append(Paragraph(
+                f"<b>{escape(labels[field])} {escape(_field_value(field, slots, audit, labels))}</b>",
+                styles["label"],
+            ))
+        story.append(Spacer(1, 3))
+    clauses = [
+        f"1. The Applicant was employed at {employer}, situated at {worksite}.",
+        "2. The Respondents are responsible for payment of wages under Section 3 of the Payment of Wages Act, 1936.",
+        f"3. (a) Case of Unpaid Wages: wages for the period {start} to {end}, for {days} days at Rs. {daily:,.0f}/day, less advance of Rs. {advance:,.0f}. "
+        f"(b) Case of Illegal Deductions: Rs. {deductions:,.0f} was unlawfully deducted from the Applicant's wages.",
+        f"4. Total relief valuation: Rs. {relief:,.0f}/- (Rupees {_number_words(relief)} Only).",
+        f"5. Prayer under Section 15(3): direct payment of delayed wages of Rs. {principal:,.0f}/- plus statutory compensation under Section 15(3) of Rs. {compensation:,.0f}/-.",
+    ]
+    for clause in clauses:
+        story.append(Paragraph(escape(clause), styles["body"]))
+        story.append(Spacer(1, 3))
+    story.append(Paragraph(f"<b>Applicable rule:</b> {escape(jurisdiction['rules_citation'])}", styles["notice"]))
+    story.append(Spacer(1, 4))
+    verification = (
+        f"I, {applicant}, the Applicant named above, do hereby declare that the facts stated in paragraphs 1 to 5 "
+        f"of this application are true and correct to the best of my personal knowledge, information, and belief. "
+        f"Verified at {jurisdiction['area']} on this [Day] day of [Month], {date_year}."
+    )
+    story.append(Paragraph(escape(verification), styles["body"]))
+    story.append(Spacer(1, 4))
 
     signature = Table(
         [
-            [Paragraph(escape(labels["signature"]), styles["body"]), ""],
-            [Paragraph(escape(labels["date"]), styles["label"]), ""],
-            [Paragraph(escape(labels["place"]), styles["label"]), ""],
+            [Paragraph(labels["signature"], styles["body"]), "____________________________"],
+            [Paragraph(f"Digital Voice Consent SHA-256 Certificate: {payload['voice_consent_sha256'] or 'Not recorded — consent must be captured before filing'}", styles["notice"]), ""],
+            [Paragraph("Supporting Evidence Checklist: [ ] e-Shram UAN Card   [ ] Attendance / Wage Computation Sheet   [ ] Section 15(2) Demand Notice", styles["notice"]), ""],
         ],
         colWidths=[document.width * 0.46, document.width * 0.54],
-        rowHeights=[36, 18, 18],
+        rowHeights=[28, 18, 18],
     )
     signature.setStyle(
         TableStyle(
             [
-                ("SPAN", (0, 0), (1, 0)),
                 ("VALIGN", (0, 0), (-1, -1), "BOTTOM"),
+                ("SPAN", (0, 1), (1, 1)),
+                ("SPAN", (0, 2), (1, 2)),
                 ("LINEBELOW", (0, 0), (-1, -1), 0.5, colors.HexColor("#687382")),
                 ("LEFTPADDING", (0, 0), (-1, -1), 4),
                 ("RIGHTPADDING", (0, 0), (-1, -1), 4),

@@ -1,17 +1,19 @@
 .chip {
   display: inline-flex;
-  min-height: 36px;
+  min-height: 32px;
   align-items: center;
   gap: 8px;
   padding: 5px 10px;
   border: 1px solid var(--line);
-  border-radius: var(--radius-control);
+  border-radius: 999px;
   color: var(--mute);
   font-size: 13px;
   white-space: nowrap;
 }
-.chip > span { width: 8px; height: 8px; border: 1px solid currentColor; border-radius: 50%; }
+.chip > span { width: 7px; height: 7px; border: 1px solid currentColor; border-radius: 50%; }
 .connected > span { border-color: var(--emerald); background: var(--emerald); }
+.connected > span { animation: statusPulse 2s ease-in-out infinite; }
+@keyframes statusPulse { 50% { box-shadow: 0 0 0 4px color-mix(in srgb, var(--emerald) 18%, transparent); } }
 
 @media (max-width: 780px) {
   .chip { display: none; }

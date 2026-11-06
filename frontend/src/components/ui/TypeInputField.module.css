@@ -1,0 +1,160 @@
+.container {
+  width: 100%;
+  max-width: 600px;
+  margin: var(--spacing-6) auto 0;
+  padding: 0 var(--spacing-4);
+}
+
+.toggleButton {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-2);
+  padding: var(--spacing-2) var(--spacing-4);
+  background: var(--color-neutral-100);
+  border: 1px solid var(--color-neutral-200);
+  border-radius: var(--radius-full);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-neutral-700);
+  cursor: pointer;
+  transition: all var(--duration-fast) var(--ease-out);
+  margin: 0 auto;
+  display: flex;
+}
+
+[data-theme='dark'] .toggleButton {
+  background: var(--color-neutral-900);
+  border-color: var(--color-neutral-800);
+  color: var(--color-neutral-300);
+}
+
+.toggleButton:hover {
+  background: var(--color-neutral-200);
+  border-color: var(--color-neutral-300);
+}
+
+[data-theme='dark'] .toggleButton:hover {
+  background: var(--color-neutral-800);
+  border-color: var(--color-neutral-700);
+}
+
+.toggleButton svg {
+  width: 16px;
+  height: 16px;
+}
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-3);
+  background: var(--color-neutral-0);
+  border: 1px solid var(--color-neutral-200);
+  border-radius: var(--radius-xl);
+  padding: var(--spacing-4);
+  box-shadow: var(--shadow-lg);
+}
+
+[data-theme='dark'] .form {
+  background: var(--color-neutral-900);
+  border-color: var(--color-neutral-800);
+}
+
+.label {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border-width: 0;
+}
+
+.textarea {
+  width: 100%;
+  min-height: 80px;
+  padding: var(--spacing-3);
+  background: var(--color-neutral-50);
+  border: 1px solid var(--color-neutral-200);
+  border-radius: var(--radius-lg);
+  font-size: var(--font-size-base);
+  line-height: var(--line-height-relaxed);
+  color: var(--color-neutral-900);
+  resize: vertical;
+  outline: none;
+  transition: all var(--duration-fast) var(--ease-out);
+  font-family: inherit;
+}
+
+[data-theme='dark'] .textarea {
+  background: var(--color-neutral-950);
+  border-color: var(--color-neutral-800);
+  color: var(--color-neutral-50);
+}
+
+.textarea:focus {
+  background: var(--color-neutral-0);
+  border-color: var(--color-primary-500);
+  box-shadow: 0 0 0 3px var(--color-primary-100);
+}
+
+[data-theme='dark'] .textarea:focus {
+  background: var(--color-neutral-900);
+  border-color: var(--color-primary-500);
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
+.textarea::placeholder {
+  color: var(--color-neutral-500);
+}
+
+.submitButton {
+  align-self: flex-end;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-2);
+  padding: var(--spacing-2-5) var(--spacing-5);
+  background: linear-gradient(
+    135deg,
+    var(--color-primary-500),
+    var(--color-primary-600)
+  );
+  color: var(--color-neutral-0);
+  border: none;
+  border-radius: var(--radius-lg);
+  font-size: var(--font-size-base);
+  font-weight: var(--font-weight-medium);
+  cursor: pointer;
+  transition: all var(--duration-fast) var(--ease-out);
+  box-shadow: var(--shadow-md);
+}
+
+.submitButton:hover:not(:disabled) {
+  box-shadow: var(--shadow-lg);
+  transform: translateY(-1px);
+}
+
+.submitButton:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.submitButton:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.submitButton svg {
+  width: 16px;
+  height: 16px;
+}
+
+/* Reduced motion support */
+@media (prefers-reduced-motion: reduce) {
+  .toggleButton,
+  .textarea,
+  .submitButton {
+    transition: none;
+  }
+}

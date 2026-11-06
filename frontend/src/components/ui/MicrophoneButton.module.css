@@ -1,0 +1,175 @@
+.button {
+  position: relative;
+  width: 80px;
+  height: 80px;
+  border-radius: 50%;
+  border: none;
+  background: linear-gradient(
+    135deg,
+    var(--color-primary-500),
+    var(--color-primary-600)
+  );
+  color: var(--color-neutral-0);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: var(--shadow-xl);
+  overflow: hidden;
+  transition: all var(--duration-normal) var(--ease-out);
+  outline: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.button:hover:not(:disabled) {
+  box-shadow: var(--shadow-2xl);
+}
+
+.button:focus-visible {
+  outline: 2px solid var(--color-primary-500);
+  outline-offset: 4px;
+}
+
+.button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  background: var(--color-neutral-400);
+}
+
+/* Recording state */
+.button.recording {
+  background: linear-gradient(
+    135deg,
+    var(--color-error-500),
+    var(--color-error-600)
+  );
+  animation: recording-pulse 1.5s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+@keyframes recording-pulse {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7),
+                var(--shadow-xl);
+  }
+  50% {
+    box-shadow: 0 0 0 12px rgba(239, 68, 68, 0),
+                var(--shadow-xl);
+  }
+}
+
+/* Error state */
+.button.error {
+  background: linear-gradient(
+    135deg,
+    var(--color-error-500),
+    var(--color-error-600)
+  );
+}
+
+/* Thinking state */
+.button.thinking {
+  background: linear-gradient(
+    135deg,
+    var(--color-warning-500),
+    var(--color-warning-600)
+  );
+}
+
+.button.thinking .icon {
+  animation: spin 2s linear infinite;
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Icon */
+.icon {
+  position: relative;
+  z-index: 2;
+  pointer-events: none;
+}
+
+/* Pulse rings */
+.pulseRing {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  border: 2px solid var(--color-error-400);
+  pointer-events: none;
+}
+
+/* Ripple effect */
+.ripple {
+  position: absolute;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.5);
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+
+/* Recording indicator dot */
+.recordingDot {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--color-neutral-0);
+  box-shadow: 0 0 8px rgba(255, 255, 255, 0.8);
+  animation: blink 1s ease-in-out infinite;
+  z-index: 3;
+}
+
+@keyframes blink {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.3;
+  }
+}
+
+/* Mobile optimizations */
+@media (max-width: 640px) {
+  .button {
+    width: 72px;
+    height: 72px;
+  }
+
+  .icon {
+    width: 28px;
+    height: 28px;
+  }
+}
+
+/* High contrast mode support */
+@media (prefers-contrast: high) {
+  .button {
+    border: 2px solid currentColor;
+  }
+}
+
+/* Reduced motion support */
+@media (prefers-reduced-motion: reduce) {
+  .button,
+  .icon,
+  .pulseRing,
+  .ripple,
+  .recordingDot {
+    animation: none !important;
+    transition: none !important;
+  }
+}

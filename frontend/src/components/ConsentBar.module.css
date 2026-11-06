@@ -4,11 +4,10 @@
   align-items: center;
   gap: 12px 20px;
   padding: 12px 14px;
-  border-left: 3px solid var(--amber);
+  border: 0;
   background: var(--raised);
 }
-.yes { border-left-color: var(--emerald); }
-.no, .unrecognized { border-left-color: var(--amber); }
+.yes, .no, .unrecognized { border: 0; }
 .copy { display: grid; gap: 3px; }
 .copy strong { font-size: 15px; }
 .copy span, .copy small { color: var(--mute); font-size: 13px; }
@@ -21,7 +20,14 @@
 .readback p { max-height: 140px; overflow: hidden; margin: 0; color: var(--ink); font-size: 14px; line-height: 1.55; }
 .bar audio { width: min(100%, 360px); min-height: 40px; }
 .audioNotice { color: var(--mute); font-size: 13px; }
-.worker { display: grid; width: 100%; gap: 8px; padding: 14px 16px; }
+.worker { display: grid; width: 100%; grid-template-columns: minmax(0, 1fr); gap: 10px; padding: 14px 16px; }
+.worker .copy,
+.worker .readback,
+.worker .playControl,
+.worker .workerConsent,
+.worker .actions { grid-column: 1; min-width: 0; }
+.worker .copy { width: 100%; }
+.worker .actions { align-items: stretch; }
 .hiddenAudio { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
 .playControl {
   display: flex;

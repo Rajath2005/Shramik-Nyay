@@ -4,10 +4,10 @@
 .count { color: var(--mute); font-size: 13px; font-variant-numeric: tabular-nums; text-align: right; }
 .sampleNotice { margin: 0 0 8px; color: var(--amber); font-size: 13px; font-weight: 700; }
 .ledger { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 22px; margin: 0; padding: 0; list-style: none; }
-.ledger li { display: grid; min-width: 0; min-height: 34px; grid-template-columns: 20px minmax(100px, .75fr) minmax(0, 1.25fr); align-items: start; gap: 6px; padding-block: 6px; border-bottom: 1px solid color-mix(in srgb, var(--line) 56%, transparent); }
+.ledger li { display: grid; min-width: 0; min-height: 34px; grid-template-columns: 20px minmax(0, .75fr) minmax(0, 1.25fr); align-items: start; gap: 6px; padding-block: 6px; border-bottom: 1px solid color-mix(in srgb, var(--line) 56%, transparent); }
 .marker { color: var(--amber); font-weight: 700; transition: color 200ms ease-out; }
 .name { min-width: 0; font-size: 13px; line-height: 1.35; }
-.value { min-width: 0; color: var(--mute); font-size: 13px; overflow-wrap: anywhere; transition: color 200ms ease-out; }
+.value { min-width: 0; color: var(--mute); font-size: 13px; overflow-wrap: break-word; transition: color 200ms ease-out; }
 .active .marker, .active .name { color: var(--blue); }
 .verified .marker, .verified .value { color: var(--emerald); }
 .verified .value { font-weight: 700; }
@@ -31,3 +31,8 @@
 .uanForm button { min-height: 40px; padding: 6px 12px; border: 1px solid var(--blue); border-radius: var(--radius-control); color: var(--surface); background: var(--blue); font-weight: 700; }
 .message { margin: 6px 0 0; color: var(--amber); font-size: 13px; overflow-wrap: anywhere; }
 @keyframes ink-fill { from { clip-path: inset(0 100% 0 0); } to { clip-path: inset(0 0 0 0); } }
+
+@media (max-width: 600px) {
+  .ledger { grid-template-columns: 1fr; }
+  .ledger li { grid-template-columns: 20px minmax(0, 1fr) minmax(0, 1fr); }
+}
