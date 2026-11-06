@@ -1,12 +1,14 @@
-import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import './App.css'
 import styles from './App.module.css'
-import AudioLine, { MicIcon } from './components/AudioLine'
+import AudioLine from './components/AudioLine'
 import ClaimSlots from './components/ClaimSlots'
 import ConsentBar from './components/ConsentBar'
 import Header from './components/Header'
 import PaperForm from './components/PaperForm'
 import Transcript from './components/Transcript'
+import { MicrophoneButton } from './components/ui/MicrophoneButton'
+import { TypeInputField } from './components/ui/TypeInputField'
 import { useMicrophone } from './hooks/useMicrophone'
 import { useCountUp } from './hooks/useCountUp'
 import { useSession } from './hooks/useSession'
@@ -203,7 +205,6 @@ export default function App() {
   })
   const [readAloud, setReadAloud] = useState(true)
   const [typed, setTyped] = useState('')
-  const [showTyping, setShowTyping] = useState(false)
   const [workerPhase, setWorkerPhase] = useState<'idle' | 'thinking' | 'speaking'>('idle')
   const [noiseLevel, setNoiseLevel] = useState(0)
   const [uan, setUan] = useState('')
@@ -317,13 +318,6 @@ export default function App() {
     }
   }, [session.events])
 
-  const submitAnswer = (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault()
-    if (!typed.trim()) return
-    setWorkerPhase('thinking')
-    send({ type: 'utterance', text: typed.trim() })
-    setTyped('')
-  }
   const toggleMicrophone = () => {
     if (mic.live) {
       setWorkerPhase('thinking')
@@ -553,16 +547,13 @@ export default function App() {
           <span className={styles.voiceHalo} aria-hidden="true" />
           <span className={styles.voiceHaloInner} aria-hidden="true" />
           <AcousticOrb active={orbActive} levels={waveform} label={copy.speakAnswer} />
-          <button
-            className={`${styles.workerMic}${mic.live ? ` ${styles.recording}` : ''}`}
-            type="button"
+          <MicrophoneButton
+            isRecording={mic.live}
             disabled={(!canUseMicrophone && !mic.live) || workerPhase === 'thinking'}
+            state={workerError ? 'error' : mic.live ? 'listening' : workerPhase as 'idle' | 'thinking' | 'speaking'}
             onClick={toggleMicrophone}
-            aria-label={mic.live ? copy.stopRecording : copy.speakAnswer}
-            data-state={workerError ? 'error' : mic.live ? 'listening' : workerPhase}
-          >
-            <MicIcon />
-          </button>
+            ariaLabel={mic.live ? copy.stopRecording : copy.speakAnswer}
+          />
         </div>
         <p className={styles.workerState} role="status" aria-live="polite">
           {mic.live
@@ -636,28 +627,19 @@ export default function App() {
         )}
 
         {session.consentState !== 'awaiting' && <div className={styles.workerTyping}>
-          {!showTyping && !session.serviceUnavailable ? (
-            <button className={styles.textToggle} type="button" onClick={() => setShowTyping(true)}>
-              <svg aria-hidden="true" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2" /><path d="M7 9h.01M10 9h.01M13 9h.01M16 9h.01M7 13h.01M10 13h.01M13 13h.01M16 13h.01" /></svg>
-              {copy.typeInstead}
-            </button>
-          ) : (
-            <form className={styles.workerTextEntry} onSubmit={submitAnswer}>
-              <label className="visually-hidden" htmlFor="worker-answer">{copy.typeAnswer}</label>
-              <textarea
-                id="worker-answer"
-                rows={2}
-                value={typed}
-                onChange={(event) => setTyped(event.target.value)}
-                placeholder={copy.typeAnswer}
-                autoFocus
-              />
-              <button type="submit" disabled={!session.online || !typed.trim()}>
-                {copy.sendAnswer}
-                <svg aria-hidden="true" viewBox="0 0 24 24"><path d="m5 12 14-7-3 14-3-6-8-1Z" /></svg>
-              </button>
-            </form>
-          )}
+          <TypeInputField
+            value={typed}
+            onChange={setTyped}
+            onSubmit={() => {
+              if (!typed.trim()) return
+              setWorkerPhase('thinking')
+              send({ type: 'utterance', text: typed.trim() })
+              setTyped('')
+            }}
+            placeholder={copy.typeAnswer}
+            disabled={!session.online || session.serviceUnavailable}
+            copy={{ typeInstead: copy.typeInstead, typeAnswer: copy.typeAnswer, sendAnswer: copy.sendAnswer }}
+          />
         </div>}
 
         {session.consentState !== 'awaiting' && <details className={styles.workerPaperPreview}>
