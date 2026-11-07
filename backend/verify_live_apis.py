@@ -170,6 +170,7 @@ async def synthesize_timbre() -> bytes:
 
 async def check_prisma(wav_bytes: bytes) -> None:
     print("\n=== [3/3] Prisma v3.0 WebSocket STT ===")
+    await asyncio.sleep(1.5)
     raw_pcm = wav_bytes[44:] if wav_bytes[:4] == b"RIFF" else wav_bytes
     raw_pcm += b"\x00" * 16000
     headers = {
@@ -204,7 +205,8 @@ async def check_prisma(wav_bytes: bytes) -> None:
             if event.get("type") == "error":
                 raise RuntimeError(f"Prisma API error: {event}")
             if event.get("type") == "transcript":
-                print(f"Transcript received: {event.get('text', '')}")
+                transcript = str(event.get("text", "")).encode("ascii", "backslashreplace").decode()
+                print(f"Transcript received: {transcript}")
                 return
     raise RuntimeError("Prisma closed without a transcript")
 

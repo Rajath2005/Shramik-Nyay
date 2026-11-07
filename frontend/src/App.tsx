@@ -266,16 +266,29 @@ export default function App() {
   }, [mode])
 
   useEffect(() => {
-    const viewport = studioViewportRef.current
-    if (!viewport) return
-    const updateScale = () => {
-      setStudioScale(Math.min(viewport.clientWidth / STUDIO_WIDTH, viewport.clientHeight / STUDIO_HEIGHT, 1))
+    if (mode !== 'studio') return
+    // Use rAF so the studio <main> has fully painted before we measure it
+    let raf = 0
+    const setup = () => {
+      const viewport = studioViewportRef.current
+      if (!viewport) return
+      const updateScale = () => {
+        setStudioScale(Math.min(viewport.clientWidth / STUDIO_WIDTH, viewport.clientHeight / STUDIO_HEIGHT, 1))
+      }
+      updateScale()
+      const observer = new ResizeObserver(updateScale)
+      observer.observe(viewport)
+      return () => observer.disconnect()
     }
-    updateScale()
-    const observer = new ResizeObserver(updateScale)
-    observer.observe(viewport)
-    return () => observer.disconnect()
-  }, [])
+    let cleanup: (() => void) | undefined
+    raf = window.requestAnimationFrame(() => {
+      cleanup = setup()
+    })
+    return () => {
+      window.cancelAnimationFrame(raf)
+      cleanup?.()
+    }
+  }, [mode])
 
   useEffect(() => {
     if (readAloud) {

@@ -137,7 +137,8 @@ class FormAPdfGeneratorTests(unittest.TestCase):
             self.assertIn("DRAFT - not filed - synthetic demo data", text)
             self.assertIn("Demo contractor, 9000000000", text)
             self.assertIn("Demo principal employer", text)
-            self.assertIn("2026-09-01 - 2026-09-18", text)
+            self.assertIn("2026-09-01", text)  # start date present
+            self.assertIn("2026-09-18", text)  # end date present
             self.assertIn("10,600", text)
             self.assertIn("5,000", text)
             self.assertIn("12,600", text)

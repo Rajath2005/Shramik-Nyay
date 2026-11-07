@@ -116,32 +116,45 @@ class PrismaRealtimeStreamer:
     async def connect_and_run(self) -> None:
         self.connecting = True
         try:
-            try:
-                async with websocket_connect(self.ws_url, additional_headers=self.headers()) as ws:
-                    self.ws, self.running = ws, True
-                    self._connection_ready.set()
-                    await asyncio.gather(self._pace(), self._listen())
-            except ConnectionClosed as error:
-                close = error.rcvd
-                code = close.code if close else None
-                reason = close.reason if close else ""
-                LOGGER.error("Prisma websocket closed: code=%s reason=%s", code, reason)
-                raise PrismaStreamError(
-                    f"Prisma websocket closed: code={code}, reason={reason!r}",
-                    "The live speech service disconnected. Please try again or type your answer.",
-                ) from error
-            except InvalidStatus as error:
-                response = error.response
-                body = bytes(response.body).decode("utf-8", "replace")
-                LOGGER.error(
-                    "Prisma websocket handshake rejected: status=%s body=%s",
-                    response.status_code,
-                    body,
-                )
-                raise PrismaStreamError(
-                    f"Prisma websocket handshake rejected: status={response.status_code}, body={body!r}",
-                    "The live speech service rejected the connection. Please try again or type your answer.",
-                ) from error
+            for attempt, delay in enumerate((0.0, 1.0, 2.0)):
+                try:
+                    if delay:
+                        await asyncio.sleep(delay)
+                    async with websocket_connect(
+                        self.ws_url,
+                        additional_headers=self.headers(),
+                        open_timeout=30,
+                        ping_interval=20,
+                        ping_timeout=20,
+                    ) as ws:
+                        self.ws, self.running = ws, True
+                        self._connection_ready.set()
+                        await asyncio.gather(self._pace(), self._listen())
+                        break
+                except (TimeoutError, OSError, asyncio.TimeoutError):
+                    if attempt == 2:
+                        raise
+                except ConnectionClosed as error:
+                    close = error.rcvd
+                    code = close.code if close else None
+                    reason = close.reason if close else ""
+                    LOGGER.error("Prisma websocket closed: code=%s reason=%s", code, reason)
+                    raise PrismaStreamError(
+                        f"Prisma websocket closed: code={code}, reason={reason!r}",
+                        "The live speech service disconnected. Please try again or type your answer.",
+                    ) from error
+                except InvalidStatus as error:
+                    response = error.response
+                    body = bytes(response.body).decode("utf-8", "replace")
+                    LOGGER.error(
+                        "Prisma websocket handshake rejected: status=%s body=%s",
+                        response.status_code,
+                        body,
+                    )
+                    raise PrismaStreamError(
+                        f"Prisma websocket handshake rejected: status={response.status_code}, body={body!r}",
+                        "The live speech service rejected the connection. Please try again or type your answer.",
+                    ) from error
         finally:
             self.running = False
             self.connecting = False

@@ -146,14 +146,21 @@ class Session:
         self.ws = ws
         self.mode = os.getenv("SHRAMIK_MODE", "MOCK_REPLAY").upper()
         self.live_guard = LiveCreditGuard()
-        self.key = os.getenv("GNANI_API_KEY", "")
+        self.key = os.getenv("GNANI_API_KEY", "").strip()
         self.live_authorized = False
         base_url = (os.getenv("GNANI_API_BASE_URL") or "https://api.vachana.ai").rstrip("/")
         endpoint = os.getenv(
             "EVON_ENDPOINT_URL",
             f"{base_url}/llm/evon-v3.3/chat/completions",
         )
-        self.engine = EvonLegalEngine(endpoint, self.key, self.mode)
+        if os.getenv("LLM_PROVIDER") or os.getenv("LLM_BASE_URL"):
+            self.engine = EvonLegalEngine(
+                os.getenv("EVON_ENDPOINT_URL", "").strip() or None,
+                os.getenv("LLM_API_KEY", self.key),
+                self.mode,
+            )
+        else:
+            self.engine = EvonLegalEngine(endpoint, self.key, self.mode)
         self.slots = FormAClaimSlots()
         self.audit: dict | None = None
         self.streamer: PrismaRealtimeStreamer | None = None

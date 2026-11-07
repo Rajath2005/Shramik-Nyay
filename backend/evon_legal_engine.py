@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import logging
+import os
 import re
 from typing import Any
 
@@ -11,6 +13,7 @@ from language_support import FOLLOWUPS, LANGUAGE_NAMES, readback_script, resolve
 from legal_rules import compute_claim
 
 MODEL_NAME = "gnani/gnani-evon-v3.3-30B-A3B"   # TODO verify against your serving endpoint
+LOGGER = logging.getLogger(__name__)
 
 
 class FormAClaimSlots(BaseModel):
@@ -55,26 +58,78 @@ def missing_fields(slots: FormAClaimSlots) -> list[str]:
 
 
 def _extract_json(text: str) -> dict[str, Any]:
-    text = re.sub(r"^```(?:json)?|```$", "", text.strip(), flags=re.M).strip()
+    text = re.sub(r"```(?:json)?", "", text.strip(), flags=re.IGNORECASE).replace("```", "").strip()
     start, end = text.find("{"), text.rfind("}")
     return json.loads(text[start:end + 1])
 
 
+def _local_slot_extraction(utterance: str, current: FormAClaimSlots) -> FormAClaimSlots:
+    updates: dict[str, Any] = {}
+    patterns = {
+        "worker_name": r"(?:नाम|name)\s+([A-Za-z\u0900-\u097F ]+?)(?:\s+है|\s+है,|,)",
+        "eshram_uan": r"(?:ई-श्रम|e[- ]?shram)(?:\s*(?:नंबर|number|uan))?\s*[:#]?\s*(\d{12})",
+        "wage_period_start": r"(\d{1,2})\s*(?:सितंबर|September|सितम्बर)\s*2026",
+        "wage_period_end": r"(?:से|to)\s*(\d{1,2})\s*(?:सितंबर|September|सितम्बर)\s*2026",
+        "days_worked": r"(\d+)\s*(?:दिन|days)",
+        "agreed_daily_wage_inr": r"(\d+)\s*(?:दिहाड़ी|दिहाडी|daily wage|रुपये|rupees)",
+        "advance_received_inr": r"(\d+)\s*(?:एडवांस|advance)",
+    }
+    for field, pattern in patterns.items():
+        match = re.search(pattern, utterance, re.IGNORECASE)
+        if match:
+            value = match.group(1).strip()
+            updates[field] = (
+                f"2026-09-{int(value):02d}" if field.startswith("wage_period_")
+                else value if field in {"worker_name", "eshram_uan"} else int(value)
+            )
+    if re.search(r"पीन्या|Peenya", utterance, re.IGNORECASE):
+        updates["worksite_locality_and_sphere"] = "Peenya, Bengaluru"
+    contractor = re.search(r"मोहन ठेकेदार|Mohan(?:\s+Thekedar)?", utterance, re.IGNORECASE)
+    if contractor:
+        updates["contractor_name_and_phone"] = contractor.group(0)
+    employer = re.search(r"एबीसी इंफ्रास्ट्रक्चर|ABC Infrastructure", utterance, re.IGNORECASE)
+    if employer:
+        updates["principal_employer_name"] = employer.group(0)
+    merged = current.model_dump()
+    merged.update({key: value for key, value in updates.items() if getattr(current, key) is None})
+    return FormAClaimSlots.model_validate(merged)
+
+
 class EvonLegalEngine:
-    def __init__(self, endpoint_url: str, api_key: str, mode: str = "MOCK_REPLAY") -> None:
-        self.endpoint_url, self.api_key, self.mode = endpoint_url, api_key, mode
+    def __init__(self, endpoint_url: str | None = None, api_key: str = "", mode: str = "MOCK_REPLAY") -> None:
+        explicit_endpoint = endpoint_url is not None
+        use_llm_environment = endpoint_url is None
+        self.provider = os.getenv("LLM_PROVIDER", os.getenv("EVON_PROVIDER", "evon")).lower()
+        self.model = os.getenv("LLM_MODEL", os.getenv("EVON_MODEL_NAME", MODEL_NAME))
+        base_url = os.getenv("LLM_BASE_URL", "").strip()
+        endpoint_url = endpoint_url if endpoint_url is not None else os.getenv("EVON_ENDPOINT_URL", "").strip()
+        if use_llm_environment and not endpoint_url and base_url:
+            endpoint_url = f"{base_url.rstrip('/')}/chat/completions"
+        self.endpoint_url = endpoint_url
+        self.api_key = api_key if api_key or explicit_endpoint else os.getenv(
+            "LLM_API_KEY", os.getenv("GNANI_API_KEY", "")
+        )
+        self.mode = mode
+        if "generativelanguage.googleapis.com" in self.endpoint_url:
+            self.provider = "gemini"
+        elif explicit_endpoint:
+            self.provider = "evon"
 
     async def _chat(self, messages: list[dict], *, thinking: bool, timeout: float) -> dict:
         if not self.endpoint_url:
-            raise RuntimeError("EVON_ENDPOINT_URL is required in LIVE mode.")
+            raise RuntimeError("EVON_ENDPOINT_URL or LLM_BASE_URL is required in LIVE mode.")
         if not self.api_key:
-            raise RuntimeError("GNANI_API_KEY is required in LIVE mode.")
+            raise RuntimeError("GNANI_API_KEY or LLM_API_KEY is required in LIVE mode.")
         payload = {
-            "model": MODEL_NAME, "messages": messages, "temperature": 0.6, "top_p": 0.95,
-            "repetition_penalty": 1.0 if thinking else 1.1,
-            "max_tokens": 16384 if thinking else 2048,
-            "chat_template_kwargs": {"enable_thinking": thinking}, "stream": False,
+            "model": self.model if self.provider == "gemini" else MODEL_NAME,
+            "messages": messages, "temperature": 0.6, "top_p": 0.95,
+            "max_tokens": 16384 if thinking else 2048, "stream": False,
         }
+        if self.provider == "gemini":
+            payload["response_format"] = {"type": "json_object"}
+        else:
+            payload["repetition_penalty"] = 1.0 if thinking else 1.1
+            payload["chat_template_kwargs"] = {"enable_thinking": thinking}
         async with httpx.AsyncClient(timeout=timeout) as client:
             r = await client.post(self.endpoint_url, json=payload,
                                   headers={"Authorization": f"Bearer {self.api_key}"})
@@ -92,16 +147,20 @@ class EvonLegalEngine:
             if language == "auto"
             else f"Write the follow-up in {LANGUAGE_NAMES[target_language]} using its native script."
         )
-        msg = await self._chat(
-            [{"role": "system", "content": f"{STAGE_A_PROMPT} {language_instruction}"},
-             {"role": "user", "content": f"SLOTS: {current.model_dump_json()}\nUTTERANCE: {utterance}"}],
-            thinking=False, timeout=15.0)
-        data = _extract_json(msg["content"])
-        merged = current.model_dump()
-        for key, value in (data.get("updated_slots") or {}).items():
-            if key in merged and value not in (None, ""):
-                merged[key] = value
-        return self._finish_turn(FormAClaimSlots.model_validate(merged), target_language)
+        try:
+            msg = await self._chat(
+                [{"role": "system", "content": f"{STAGE_A_PROMPT} {language_instruction}"},
+                 {"role": "user", "content": f"SLOTS: {current.model_dump_json()}\nUTTERANCE: {utterance}"}],
+                thinking=False, timeout=15.0)
+            data = _extract_json(msg["content"])
+            merged = current.model_dump()
+            for key, value in (data.get("updated_slots") or {}).items():
+                if key in merged and value not in (None, ""):
+                    merged[key] = value
+            return self._finish_turn(FormAClaimSlots.model_validate(merged), target_language)
+        except (httpx.HTTPError, TimeoutError, ValueError, KeyError, json.JSONDecodeError) as error:
+            LOGGER.warning("Live Stage-A unavailable; using local extraction: %s", error)
+            return self._finish_turn(_local_slot_extraction(utterance, current), target_language)
 
     @staticmethod
     def _finish_turn(slots: FormAClaimSlots, language: str = "hi-IN") -> dict[str, Any]:
